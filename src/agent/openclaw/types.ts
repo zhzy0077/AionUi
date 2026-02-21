@@ -294,6 +294,7 @@ export interface OpenClawGatewayClientOptions {
   onHelloOk?: (hello: HelloOk) => void;
   onConnectError?: (err: Error) => void;
   onClose?: (code: number, reason: string) => void;
+  onPairingRequired?: (requestId: string | undefined) => void;
 }
 
 // ========== Gateway Close Code Hints ==========

@@ -1054,6 +1054,7 @@
       "connected": "Connected to {{agent}}",
       "authenticated": "Authenticated with {{agent}}",
       "session_active": "Active session with {{agent}}",
+      "pairing_required": "Waiting for device pairing approval...",
       "disconnected": "Disconnected from {{agent}}",
       "error": "Connection error",
       "unknown": "Unknown status"

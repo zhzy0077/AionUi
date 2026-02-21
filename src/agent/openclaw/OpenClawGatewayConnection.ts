@@ -11,6 +11,21 @@ import { GATEWAY_CLIENT_IDS, GATEWAY_CLIENT_MODES, GATEWAY_CLOSE_CODE_HINTS, OPE
 import { buildDeviceAuthPayload, type DeviceIdentity, loadOrCreateDeviceIdentity, publicKeyRawBase64UrlFromPem, signDevicePayload } from './deviceIdentity';
 import { clearDeviceAuthToken, loadDeviceAuthToken, storeDeviceAuthToken } from './deviceAuthStore';
 
+/**
+ * Extended Error that preserves gateway error details (code, details).
+ */
+export class GatewayError extends Error {
+  readonly code: string;
+  readonly details?: Record<string, unknown>;
+
+  constructor(message: string, code: string, details?: Record<string, unknown>) {
+    super(message);
+    this.name = 'GatewayError';
+    this.code = code;
+    this.details = details;
+  }
+}
+
 interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (err: Error) => void;
@@ -40,6 +55,11 @@ export class OpenClawGatewayConnection {
   private backoffMs = 1000;
   private reconnectAttempts = 0;
   private readonly maxReconnectAttempts = 10;
+
+  // Pairing state for remote gateway device approval
+  private pairingPending = false;
+  private readonly pairingRetryIntervalMs = 10_000;
+  private readonly maxPairingRetries = 30;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
   private lastSeq: number | null = null;
@@ -291,6 +311,7 @@ export class OpenClawGatewayConnection {
 
         this._isConnected = true;
         this._helloOk = helloOk;
+        this.pairingPending = false;
         this.backoffMs = 1000;
         this.reconnectAttempts = 0;
         this.tickIntervalMs = typeof helloOk.policy?.tickIntervalMs === 'number' ? helloOk.policy.tickIntervalMs : 30_000;
@@ -300,6 +321,19 @@ export class OpenClawGatewayConnection {
       })
       .catch((err) => {
         console.error('[OpenClawGateway] Connect failed:', err);
+
+        // Detect pairing-required error from remote gateway
+        const isPairingRequired = (err instanceof GatewayError && err.code === 'NOT_PAIRED') || (err instanceof Error && err.message.includes('pairing required'));
+
+        if (isPairingRequired) {
+          const requestId = err instanceof GatewayError ? (err.details?.requestId as string | undefined) : undefined;
+          console.log('[OpenClawGateway] Device pairing required, requestId:', requestId);
+          this.pairingPending = true;
+          this.opts.onPairingRequired?.(requestId);
+          // Let scheduleReconnect handle pairing-aware retries
+          this.ws?.close(1000, 'pairing required');
+          return;
+        }
 
         // Clear stored token if it was invalid and we can fall back to shared token
         if (canFallbackToShared) {
@@ -371,7 +405,11 @@ export class OpenClawGatewayConnection {
         if (res.ok) {
           pending.resolve(res.payload);
         } else {
-          pending.reject(new Error(res.error?.message ?? 'Unknown error'));
+          const errShape = res.error;
+          const errMsg = errShape?.message ?? 'Unknown error';
+          const errCode = errShape?.code ?? 'UNKNOWN';
+          const errDetails = typeof errShape?.details === 'object' && errShape?.details !== null ? (errShape.details as Record<string, unknown>) : undefined;
+          pending.reject(new GatewayError(errMsg, errCode, errDetails));
         }
       }
     } catch (err) {
@@ -396,21 +434,42 @@ export class OpenClawGatewayConnection {
       return;
     }
     this.reconnectAttempts++;
-    if (this.reconnectAttempts > this.maxReconnectAttempts) {
-      console.error(`[OpenClawGateway] Max reconnect attempts (${this.maxReconnectAttempts}) reached, giving up`);
-      this.opts.onConnectError?.(new Error(`Max reconnect attempts (${this.maxReconnectAttempts}) reached`));
-      return;
+
+    if (this.pairingPending) {
+      // Pairing mode: fixed interval, higher retry limit
+      if (this.reconnectAttempts > this.maxPairingRetries) {
+        console.error(`[OpenClawGateway] Pairing approval timeout after ${this.maxPairingRetries} retries, giving up`);
+        this.pairingPending = false;
+        this.opts.onConnectError?.(new Error('Pairing approval timeout: device was not approved within the expected window'));
+        return;
+      }
+      if (this.tickTimer) {
+        clearInterval(this.tickTimer);
+        this.tickTimer = null;
+      }
+      console.log(`[OpenClawGateway] Pairing pending, retry ${this.reconnectAttempts}/${this.maxPairingRetries} in ${this.pairingRetryIntervalMs}ms`);
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this.start();
+      }, this.pairingRetryIntervalMs);
+    } else {
+      // Normal mode: exponential backoff
+      if (this.reconnectAttempts > this.maxReconnectAttempts) {
+        console.error(`[OpenClawGateway] Max reconnect attempts (${this.maxReconnectAttempts}) reached, giving up`);
+        this.opts.onConnectError?.(new Error(`Max reconnect attempts (${this.maxReconnectAttempts}) reached`));
+        return;
+      }
+      if (this.tickTimer) {
+        clearInterval(this.tickTimer);
+        this.tickTimer = null;
+      }
+      const delay = this.backoffMs;
+      this.backoffMs = Math.min(this.backoffMs * 2, 30_000);
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this.start();
+      }, delay);
     }
-    if (this.tickTimer) {
-      clearInterval(this.tickTimer);
-      this.tickTimer = null;
-    }
-    const delay = this.backoffMs;
-    this.backoffMs = Math.min(this.backoffMs * 2, 30_000);
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.start();
-    }, delay);
   }
 
   private flushPendingErrors(err: Error): void {

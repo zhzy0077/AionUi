@@ -43,6 +43,7 @@
       "connected": "{{agent}} に接続しました",
       "authenticated": "{{agent}} 認証が完了しました",
       "session_active": "{{agent}} セッション実行中",
+      "pairing_required": "デバイスペアリングの承認を待っています...",
       "disconnected": "{{agent}} から切断されました",
       "error": "接続エラー",
       "unknown": "不明な状態"

@@ -163,6 +163,7 @@ export class OpenClawAgent {
         onHelloOk: (hello) => this.handleHelloOk(hello),
         onConnectError: (err) => this.handleConnectError(err),
         onClose: (code, reason) => this.handleClose(code, reason),
+        onPairingRequired: (requestId) => this.handlePairingRequired(requestId),
       });
 
       // Start connection
@@ -559,6 +560,34 @@ export class OpenClawAgent {
     this.emitErrorMessage(`Connection error: ${err.message}`);
   }
 
+  private handlePairingRequired(requestId: string | undefined): void {
+    console.log('[OpenClawAgent] Device pairing required, requestId:', requestId);
+    this.emitStatusMessage('pairing_required');
+    this.emitPairingMessage(requestId);
+  }
+
+  private emitPairingMessage(requestId: string | undefined): void {
+    const lines = ['Remote gateway requires device pairing approval.', 'Please approve this device on the gateway server:', '', '  openclaw devices approve --latest'];
+    if (requestId) {
+      lines.push(`  # or: openclaw devices approve ${requestId}`);
+    }
+    lines.push('', 'Waiting for approval... (retrying automatically)');
+
+    const message: TMessage = {
+      id: uuid(),
+      conversation_id: this.id,
+      type: 'tips',
+      position: 'center',
+      createdAt: Date.now(),
+      content: {
+        content: lines.join('\n'),
+        type: 'warning',
+      },
+    };
+
+    this.emitMessage(message);
+  }
+
   private handleClose(code: number, reason: string): void {
     console.log('[OpenClawAgent] Connection closed:', code, reason);
     this.handleDisconnect(reason);
@@ -637,7 +666,7 @@ export class OpenClawAgent {
 
   // ========== Message Emission ==========
 
-  private emitStatusMessage(status: 'connecting' | 'connected' | 'session_active' | 'disconnected' | 'error'): void {
+  private emitStatusMessage(status: 'connecting' | 'connected' | 'session_active' | 'pairing_required' | 'disconnected' | 'error'): void {
     if (!this.statusMessageId) {
       this.statusMessageId = uuid();
     }

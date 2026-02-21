@@ -226,3 +226,65 @@ openclaw gateway --port 18789 --auth-password "your-password"
 ```
 
 共享 token/密码在启动 Gateway 时设置，所有客户端使用相同的共享凭证进行首次认证。
+
+## 设备配对
+
+### 配对流程
+
+OpenClaw Gateway 采用设备配对机制来控制远程设备的访问权限：
+
+- **本地连接**（localhost）：自动批准配对（`silent: true`），无需人工干预
+- **远程连接**：需要管理员在网关服务端手动批准
+
+远程连接的完整流程：
+
+1. 客户端带 shared token + 设备签名连接网关
+2. 网关验证 shared token ✓
+3. 网关检查设备是否已配对 → **未配对**
+4. 网关创建待审批配对请求（5 分钟过期），广播 `device.pair.requested` 事件
+5. 网关返回错误 `{code: "NOT_PAIRED", message: "pairing required", details: {requestId}}` 并关闭连接
+6. **管理员**通过 CLI 或 API 批准配对请求
+7. 客户端自动重连，网关返回 `HelloOk` + `deviceToken`
+8. 后续连接使用 device token，无需再次配对
+
+### CLI 命令
+
+在远程网关服务器上执行以下命令管理设备配对：
+
+```bash
+# 列出所有待审批和已配对设备
+openclaw devices list
+
+# 批准最新的待处理请求
+openclaw devices approve --latest
+
+# 批准指定请求（使用 requestId）
+openclaw devices approve <requestId>
+
+# 拒绝指定请求
+openclaw devices reject <requestId>
+
+# 移除已配对设备
+openclaw devices remove <deviceId>
+```
+
+如需指定远程网关连接参数：
+
+```bash
+openclaw devices approve --latest --url ws://198.13.48.23:18777 --token <your-token>
+```
+
+### RPC API
+
+也可以通过网关的 RPC 方法管理设备配对：
+
+- `device.pair.list` — 列出待审批和已配对设备
+- `device.pair.approve` — 批准指定 requestId
+- `device.pair.reject` — 拒绝指定 requestId
+
+### 注意事项
+
+- 配对请求有效期 **5 分钟**，过期后需要客户端重新发起连接
+- AionUi 在收到 `pairing required` 后会自动重试（固定 10 秒间隔，最多 30 次，约 5 分钟）
+- 管理员批准后，下次重试即可成功连接
+- 设备获得 device token 后，后续连接免配对
