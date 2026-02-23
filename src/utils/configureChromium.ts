@@ -16,16 +16,19 @@ const isResetPassword = process.argv.includes('--resetpass');
 // 检测无显示服务器的 Linux 环境（X11 或 Wayland）
 const isLinuxNoDisplay = process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY;
 
-// For all modes: enable headless on Linux without display to prevent segfault
-// 对所有模式：Linux 无显示时启用 headless 防止段错误崩溃
+// All Linux: prevent GPU sandbox init failure (error_code=1002) on VMs, containers, and
+// systems with restricted namespaces — applies regardless of display server availability
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('no-sandbox');
+  app.commandLine.appendSwitch('disable-dev-shm-usage');
+}
+
+// Linux no-display: enable headless mode to prevent segfault when no display server is present
+// Linux 无显示时启用 headless 防止段错误崩溃
 if (isLinuxNoDisplay) {
   app.commandLine.appendSwitch('headless');
   app.commandLine.appendSwitch('disable-gpu');
   app.commandLine.appendSwitch('disable-software-rasterizer');
-  // Prevent GPU sandbox init failure (error_code=1002) on servers without user namespaces
-  app.commandLine.appendSwitch('no-sandbox');
-  // Prevent network service crash caused by insufficient /dev/shm in container environments
-  app.commandLine.appendSwitch('disable-dev-shm-usage');
 }
 
 // Detect Linux with Wayland display server
