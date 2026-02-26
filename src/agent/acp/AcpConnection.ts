@@ -59,9 +59,13 @@ export function createGenericSpawnConfig(cliPath: string, workingDir: string, ac
   }
   // Disable ANSI colors: ACP processes communicate via JSON-RPC over piped
   // stdio, so color escape codes are unnecessary and can crash CLIs whose
-  // color libraries fail in non-TTY environments.
+  // color libraries fail in non-TTY environments (e.g. iflow-cli rgbToAnsi256).
+  // TERM=dumb is the most reliable signal — it disables color capability
+  // detection in supports-color, chalk, and most terminal libraries.
+  env.TERM = 'dumb';
   env.NO_COLOR = '1';
   env.FORCE_COLOR = '0';
+  delete env.COLORTERM;
 
   // Default to --experimental-acp only if acpArgs is strictly undefined.
   // This allows passing an empty array [] to bypass default flags.
