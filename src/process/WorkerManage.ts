@@ -126,13 +126,10 @@ const buildConversation = (conversation: TChatConversation, options?: BuildConve
 };
 
 const getTaskByIdRollbackBuild = async (id: string, options?: BuildConversationOptions): Promise<AgentBaseTask<unknown>> => {
-  console.log(`[WorkerManage] getTaskByIdRollbackBuild: id=${id}, options=${JSON.stringify(options)}`);
-
   // If not skipping cache, check for existing task
   if (!options?.skipCache) {
     const task = taskList.find((item) => item.id === id)?.task;
     if (task) {
-      console.log(`[WorkerManage] Found existing task in memory for: ${id}`);
       return Promise.resolve(task);
     }
   }
@@ -140,10 +137,8 @@ const getTaskByIdRollbackBuild = async (id: string, options?: BuildConversationO
   // Try to load from database first
   const db = getDatabase();
   const dbResult = db.getConversation(id);
-  console.log(`[WorkerManage] Database lookup result: success=${dbResult.success}, hasData=${!!dbResult.data}`);
 
   if (dbResult.success && dbResult.data) {
-    console.log(`[WorkerManage] Building conversation from database: ${id}`);
     return buildConversation(dbResult.data, options);
   }
 

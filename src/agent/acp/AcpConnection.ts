@@ -1044,8 +1044,8 @@ export class AcpConnection {
 
     this.sessionId = response.sessionId;
 
-    // Debug: log full session/new response for diagnosing model list issues
-    console.log(`[ACP ${this.backend}] session/new response:`, JSON.stringify(response, null, 2));
+    // Log session ID only; full response is too verbose for normal operation
+    console.log(`[ACP ${this.backend}] session/new: sessionId=${response.sessionId}`);
 
     // Parse configOptions and models from session/new response
     const result = response as unknown as Record<string, unknown>;
