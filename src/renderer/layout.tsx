@@ -71,17 +71,6 @@ const detectMobileViewportOrTouch = (): boolean => {
   return byWidth || (smallScreen && (byMedia || byTouchPoints));
 };
 
-const detectMobileViewportOrTouch = (): boolean => {
-  if (typeof window === 'undefined') return false;
-  if (isElectronDesktop()) {
-    return window.innerWidth < 768;
-  }
-  const byWidth = window.innerWidth < 768;
-  const byMedia = window.matchMedia('(hover: none)').matches || window.matchMedia('(pointer: coarse)').matches;
-  const byTouchPoints = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0;
-  return byWidth || byMedia || byTouchPoints;
-};
-
 const Layout: React.FC<{
   sider: React.ReactNode;
   onSessionClick?: () => void;

@@ -503,7 +503,7 @@ const ChatLayout: React.FC<{
           </div>
         )}
 
-        {workspaceEnabled && layout?.isMobile && (
+        {workspaceEnabled && layout?.isMobile && !rightSiderCollapsed && (
           <button
             type='button'
             className='fixed z-101 flex items-center justify-center transition-colors workspace-toggle-floating'
@@ -522,7 +522,7 @@ const ChatLayout: React.FC<{
               boxShadow: '0 8px 20px rgba(0, 0, 0, 0.12)',
             }}
             onClick={() => dispatchWorkspaceToggleEvent()}
-            aria-label={rightSiderCollapsed ? 'Expand workspace' : 'Collapse workspace'}
+            aria-label='Collapse workspace'
           >
             <span className='flex flex-col items-center justify-center gap-5px text-t-secondary'>
               <span className='block w-8px h-2px rd-999px bg-current opacity-85'></span>

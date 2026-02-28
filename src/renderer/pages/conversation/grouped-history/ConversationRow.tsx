@@ -88,7 +88,7 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
         )}
         {renderLeadingIcon()}
         <FlexFullContainer className='h-24px min-w-0 flex-1 collapsed-hidden ml-10px'>
-          <Tooltip content={conversation.name} disabled={!inlineNameTooltipEnabled} trigger={inlineNameTooltipEnabled ? 'hover' : []} popupVisible={inlineNameTooltipEnabled ? undefined : false} unmountOnExit popupHoverStay={false} position='top'>
+          <Tooltip content={conversation.name} disabled={!inlineNameTooltipEnabled} trigger='hover' popupVisible={inlineNameTooltipEnabled ? undefined : false} unmountOnExit popupHoverStay={false} position='top'>
             <div className={classNames('chat-history__item-name overflow-hidden text-ellipsis block w-full text-14px lh-24px whitespace-nowrap min-w-0 group-hover:text-1', selected && !batchMode ? 'text-1 font-medium' : 'text-2')}>{conversation.name}</div>
           </Tooltip>
         </FlexFullContainer>
