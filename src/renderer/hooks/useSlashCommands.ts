@@ -20,9 +20,6 @@ function getCachedCommands(conversationId: string): SlashCommandItem[] | null {
     slashCommandCache.delete(conversationId);
     return null;
   }
-  // Re-insert to maintain LRU order (most recently accessed moves to end)
-  slashCommandCache.delete(conversationId);
-  slashCommandCache.set(conversationId, entry);
   return entry.commands;
 }
 
