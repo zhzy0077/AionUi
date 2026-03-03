@@ -100,6 +100,15 @@ function registerProductionStaticRoutes(expressApp: Express, staticRoot: string,
     message: 'Too many requests, please try again later',
   });
 
+  // Cache index.html in memory to avoid blocking the event loop with readFileSync on every request
+  let cachedHtml: string;
+  try {
+    cachedHtml = fs.readFileSync(indexHtmlPath, 'utf8');
+  } catch (error) {
+    console.error('Failed to read index.html at startup:', error);
+    cachedHtml = '';
+  }
+
   const serveApplication = (req: Request, res: Response) => {
     try {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -111,9 +120,8 @@ function registerProductionStaticRoutes(expressApp: Express, staticRoot: string,
         res.clearCookie(AUTH_CONFIG.COOKIE.NAME);
       }
 
-      const htmlContent = fs.readFileSync(indexHtmlPath, 'utf8');
       res.setHeader('Content-Type', 'text/html');
-      res.send(htmlContent);
+      res.send(cachedHtml);
     } catch (error) {
       console.error('Error serving index.html:', error);
       res.status(500).send('Internal Server Error');
