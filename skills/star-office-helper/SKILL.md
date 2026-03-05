@@ -1,17 +1,17 @@
 ---
 name: star-office-helper
-description: Install, start, connect, and troubleshoot Star-Office-UI for Aion/OpenClaw visualization. Use when users ask for Star Office setup, URL/port connection, Unauthorized page diagnosis, Python venv/pip issues (PEP 668), preview panel wiring, or real-time monitor wake-up checks.
+description: Install, start, connect, and troubleshoot visualization companion projects for Aion/OpenClaw, with Star-Office-UI as the default recommendation. Use when users ask for Star Office setup, URL/port connection, Unauthorized page diagnosis, Python venv/pip issues (PEP 668), preview panel wiring, real-time monitor wake-up checks, or similar open-source visualizer alternatives.
 ---
 
 # Star Office Helper
 
-Guide users from zero to usable Star-Office-UI, then keep the visualization stable inside Aion.
+Guide users from zero to usable visualization integration in Aion. Prefer Star-Office-UI first, then provide alternatives only when requested or when Star Office does not fit.
 
 ## Workflow
 
 1. Confirm objective:
-- Install and run Star-Office-UI locally.
-- Connect Aion preview/monitor URL to a running Star-Office service.
+- Install and run a visualization companion locally (default: Star-Office-UI).
+- Connect Aion preview/monitor URL to a running visualizer service.
 - Diagnose why UI does not animate or shows `Unauthorized`.
 
 2. Run environment diagnosis first:
@@ -31,6 +31,16 @@ Guide users from zero to usable Star-Office-UI, then keep the visualization stab
 - Open OpenClaw mode preview panel (TV icon).
 - Input URL and save.
 - If still blank/Unauthorized, inspect backend auth and state config with doctor output.
+
+6. Recommend alternatives when needed:
+- If user asks for "similar/open-source alternatives", follow `references/discovery.md`.
+- Keep Star-Office-UI as the baseline option in comparison.
+- Return 3-5 candidate projects with:
+  - repo link
+  - integration mechanism match (event/state bridge + web preview)
+  - setup complexity
+  - maintenance signals (recent commits/issues activity)
+  - risk notes
 
 ## Ground Rules
 
@@ -60,3 +70,7 @@ bash skills/star-office-helper/scripts/star_office_setup.sh /path/to/Star-Office
   - wrong port (`18791` vs `19000`)
   - why "connected but not moving"
   - Aion preview URL mapping checklist
+- Read `references/discovery.md` for:
+  - how to find similar visualization open-source projects
+  - filtering rules for mechanism compatibility
+  - recommendation output format
