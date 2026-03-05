@@ -24,6 +24,23 @@ export const STAR_OFFICE_URL_KEY = 'aionui.starOffice.url';
 export const STAR_OFFICE_SYNC_ENABLED_KEY = 'aionui.starOffice.syncEnabled';
 export const STAR_OFFICE_EMBED_ENABLED_KEY = 'aionui.starOffice.embedEnabled';
 export const STAR_OFFICE_SYNC_LOGS_KEY = 'aionui.starOffice.syncLogs';
+export const STAR_OFFICE_DETECT_CACHE_KEY = 'aionui.starOffice.detectCache';
+
+const STAR_OFFICE_SCAN_RADIUS = 24;
+const STAR_OFFICE_SCAN_CONCURRENCY = 6;
+const STAR_OFFICE_SCAN_TIMEOUT_MS = 280;
+const STAR_OFFICE_DETECT_CACHE_HIT_TTL_MS = 20_000;
+const STAR_OFFICE_DETECT_CACHE_MISS_TTL_MS = 6_000;
+
+interface DetectCacheEntry {
+  url: string | null;
+  ts: number;
+}
+
+interface DetectOptions {
+  timeoutMs?: number;
+  force?: boolean;
+}
 
 export const mapAcpAgentStatusToStarOfficeState = (status?: string): StarOfficeState | null => {
   switch (status) {
@@ -105,16 +122,111 @@ export const checkStarOfficeHealth = async (baseUrl: string, timeoutMs = 1200): 
   }
 };
 
-export const detectReachableStarOfficeUrl = async (preferredUrl?: string): Promise<string | null> => {
-  const candidates = [preferredUrl, ...STAR_OFFICE_FALLBACK_URLS]
-    .filter((item): item is string => Boolean(item && item.trim()))
-    .map((item) => item.trim().replace(/\/+$/, ''))
-    .filter((item, index, arr) => arr.indexOf(item) === index);
-
-  for (const candidate of candidates) {
-    // eslint-disable-next-line no-await-in-loop
-    const ok = await checkStarOfficeHealth(candidate);
-    if (ok) return candidate;
+const toLocalPort = (rawUrl?: string): number | null => {
+  if (!rawUrl?.trim()) return null;
+  try {
+    const parsed = new URL(rawUrl.trim());
+    const host = parsed.hostname.toLowerCase();
+    if (!['127.0.0.1', 'localhost'].includes(host)) return null;
+    if (parsed.port) {
+      const port = Number(parsed.port);
+      return Number.isFinite(port) && port > 0 ? port : null;
+    }
+    return parsed.protocol === 'https:' ? 443 : 80;
+  } catch {
+    return null;
   }
-  return null;
+};
+
+const toLocalUrl = (port: number) => `http://127.0.0.1:${port}`;
+
+const readDetectCache = (): DetectCacheEntry | null => {
+  try {
+    const raw = localStorage.getItem(STAR_OFFICE_DETECT_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as DetectCacheEntry;
+    if (!parsed || typeof parsed.ts !== 'number' || !('url' in parsed)) return null;
+    if (parsed.url !== null && typeof parsed.url !== 'string') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const writeDetectCache = (url: string | null) => {
+  try {
+    localStorage.setItem(
+      STAR_OFFICE_DETECT_CACHE_KEY,
+      JSON.stringify({
+        url,
+        ts: Date.now(),
+      } as DetectCacheEntry)
+    );
+  } catch {
+    // ignore storage failures
+  }
+};
+
+const buildCandidates = (preferredUrl?: string): string[] => {
+  const knownPorts = [toLocalPort(preferredUrl), ...STAR_OFFICE_FALLBACK_URLS.map((item) => toLocalPort(item))]
+    .filter((port): port is number => port != null)
+    .filter((port, index, arr) => arr.indexOf(port) === index);
+
+  const rangedPorts: number[] = [];
+  for (const basePort of knownPorts) {
+    for (let offset = 1; offset <= STAR_OFFICE_SCAN_RADIUS; offset += 1) {
+      const up = basePort + offset;
+      const down = basePort - offset;
+      if (up <= 65535) rangedPorts.push(up);
+      if (down >= 1024) rangedPorts.push(down);
+    }
+  }
+
+  return [...knownPorts, ...rangedPorts]
+    .filter((port, index, arr) => arr.indexOf(port) === index)
+    .map(toLocalUrl);
+};
+
+const probeCandidates = async (candidates: string[], timeoutMs: number): Promise<string | null> => {
+  if (!candidates.length) return null;
+
+  let cursor = 0;
+  let found: string | null = null;
+
+  const workers = Array.from({ length: Math.min(STAR_OFFICE_SCAN_CONCURRENCY, candidates.length) }, async () => {
+    while (!found) {
+      const current = cursor;
+      cursor += 1;
+      if (current >= candidates.length) return;
+      const target = candidates[current];
+      // eslint-disable-next-line no-await-in-loop
+      const ok = await checkStarOfficeHealth(target, timeoutMs);
+      if (ok && !found) {
+        found = target;
+        return;
+      }
+    }
+  });
+
+  await Promise.all(workers);
+  return found;
+};
+
+export const detectReachableStarOfficeUrl = async (preferredUrl?: string, options: DetectOptions = {}): Promise<string | null> => {
+  const timeoutMs = options.timeoutMs ?? STAR_OFFICE_SCAN_TIMEOUT_MS;
+
+  if (!options.force) {
+    const cache = readDetectCache();
+    if (cache) {
+      const ttl = cache.url ? STAR_OFFICE_DETECT_CACHE_HIT_TTL_MS : STAR_OFFICE_DETECT_CACHE_MISS_TTL_MS;
+      if (Date.now() - cache.ts <= ttl) {
+        return cache.url;
+      }
+    }
+  }
+
+  const candidates = buildCandidates(preferredUrl);
+  const found = await probeCandidates(candidates, timeoutMs);
+  writeDetectCache(found);
+  return found;
 };

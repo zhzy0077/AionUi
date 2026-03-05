@@ -9,6 +9,7 @@ import { Button, Input, Modal, Tooltip } from '@arco-design/web-react';
 import { Tv } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ipcBridge } from '@/common';
 import { detectReachableStarOfficeUrl, STAR_OFFICE_URL_KEY } from '@/renderer/utils/starOffice';
 
 const MONITOR_URL_STORAGE_KEY = 'aionui.openclaw.monitorUrl';
@@ -25,6 +26,11 @@ const normalizeUrl = (raw: string) => {
   return `http://${trimmed}`;
 };
 
+type IdleWindow = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
 const OpenClawMonitorButton: React.FC<OpenClawMonitorButtonProps> = ({ onOpenUrl }) => {
   const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
@@ -38,10 +44,24 @@ const OpenClawMonitorButton: React.FC<OpenClawMonitorButtonProps> = ({ onOpenUrl
     }
   });
 
-  const runDetect = useCallback(async () => {
-    setDetecting(true);
+  const runDetect = useCallback(async (options?: { force?: boolean; silent?: boolean; timeoutMs?: number }) => {
+    if (!options?.silent) setDetecting(true);
     try {
-      const found = await detectReachableStarOfficeUrl(url);
+      let found: string | null = null;
+      const mainDetectResult = await ipcBridge.application.detectStarOfficeUrl.invoke({
+        preferredUrl: url,
+        force: options?.force,
+        timeoutMs: options?.timeoutMs ?? 1000,
+      });
+      if (mainDetectResult.success) {
+        found = mainDetectResult.data?.url || null;
+      }
+      if (!found) {
+        found = await detectReachableStarOfficeUrl(url, {
+          force: options?.force,
+          timeoutMs: options?.timeoutMs,
+        });
+      }
       setDetectedUrl(found);
       if (found) {
         setUrl(found);
@@ -52,13 +72,29 @@ const OpenClawMonitorButton: React.FC<OpenClawMonitorButtonProps> = ({ onOpenUrl
           // ignore persistence error
         }
       }
+      return found;
     } finally {
-      setDetecting(false);
+      if (!options?.silent) setDetecting(false);
     }
   }, [url]);
 
   useEffect(() => {
-    void runDetect();
+    const idleWindow = window as IdleWindow;
+    if (typeof idleWindow.requestIdleCallback === 'function') {
+      const idleId = idleWindow.requestIdleCallback(() => {
+        void runDetect({ silent: true });
+      }, { timeout: 700 });
+      return () => {
+        if (typeof idleWindow.cancelIdleCallback === 'function') {
+          idleWindow.cancelIdleCallback(idleId);
+        }
+      };
+    }
+
+    const timer = window.setTimeout(() => {
+      void runDetect({ silent: true });
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [runDetect]);
 
   const handleConfirm = useCallback(() => {
@@ -127,7 +163,7 @@ const OpenClawMonitorButton: React.FC<OpenClawMonitorButtonProps> = ({ onOpenUrl
         <div className='text-12px text-t-secondary mb-8px'>{t('conversation.preview.openclawMonitorHint', { defaultValue: 'Input monitor URL, e.g. http://127.0.0.1:19000' })}</div>
         <Input value={url} onChange={setUrl} placeholder='http://127.0.0.1:19000' />
         <div className='mt-8px'>
-          <Button size='mini' type='outline' loading={detecting} onClick={() => void runDetect()}>
+          <Button size='mini' type='outline' loading={detecting} onClick={() => void runDetect({ force: true, timeoutMs: 360 })}>
             {t('conversation.preview.openclawMonitorDetect', { defaultValue: 'Auto detect local Star Office' })}
           </Button>
         </div>
