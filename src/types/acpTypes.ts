@@ -679,6 +679,15 @@ export interface UserMessageChunkUpdate extends BaseSessionUpdate {
   };
 }
 
+// Usage/statistics update emitted by newer ACP bridges (for example codex-acp).
+// The payload is bridge-specific, so we keep it flexible and treat it as metadata.
+export interface UsageUpdate extends BaseSessionUpdate {
+  update: {
+    sessionUpdate: 'usage_update';
+    [key: string]: unknown;
+  };
+}
+
 // ===== ACP ConfigOption types (stable API) =====
 
 /** A single select option within a config option */
@@ -743,7 +752,8 @@ export interface AcpModelInfo {
 }
 
 // 所有会话更新的联合类型 / Union type for all session updates
-export type AcpSessionUpdate = AgentMessageChunkUpdate | AgentThoughtChunkUpdate | ToolCallUpdate | ToolCallUpdateStatus | PlanUpdate | AvailableCommandsUpdate | UserMessageChunkUpdate | ConfigOptionsUpdatePayload;
+// eslint-disable-next-line max-len
+export type AcpSessionUpdate = AgentMessageChunkUpdate | AgentThoughtChunkUpdate | ToolCallUpdate | ToolCallUpdateStatus | PlanUpdate | AvailableCommandsUpdate | UserMessageChunkUpdate | UsageUpdate | ConfigOptionsUpdatePayload;
 
 // 当前的 ACP 权限请求接口 / Current ACP permission request interface
 export interface AcpPermissionOption {

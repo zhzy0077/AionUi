@@ -483,29 +483,47 @@ export class AcpConnection {
     };
 
     try {
-      const { stdout } = await execFile(codexCommand, ['--version'], {
-        env: cleanEnv,
-        timeout: 5000,
-        windowsHide: true,
-      });
-      diagnostics.codexCliVersion = stdout.trim() || diagnostics.codexCliVersion;
+      diagnostics.codexCliVersion = (await this.execDiagnosticCommand(codexCommand, ['--version'], cleanEnv)) || diagnostics.codexCliVersion;
     } catch (error) {
       mainWarn('[ACP codex]', 'Failed to read codex CLI version', error);
     }
 
     try {
-      const { stdout } = await execFile(codexCommand, ['login', 'status'], {
-        env: cleanEnv,
-        timeout: 5000,
-        windowsHide: true,
-      });
-      diagnostics.loginStatus = stdout.trim() || diagnostics.loginStatus;
+      diagnostics.loginStatus = (await this.execDiagnosticCommand(codexCommand, ['login', 'status'], cleanEnv)) || diagnostics.loginStatus;
       diagnostics.hasChatGptSession = /chatgpt/i.test(diagnostics.loginStatus);
     } catch (error) {
       mainWarn('[ACP codex]', 'Failed to read codex login status', error);
     }
 
     mainLog('[ACP codex]', 'Runtime diagnostics', diagnostics);
+  }
+
+  private quoteWindowsCmdArg(arg: string): string {
+    if (arg.length === 0) {
+      return '""';
+    }
+
+    return /[\s"&|<>^()]/.test(arg) ? `"${arg.replace(/"/g, '""')}"` : arg;
+  }
+
+  private async execDiagnosticCommand(command: string, args: string[], env: Record<string, string | undefined>): Promise<string> {
+    if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(command)) {
+      const shellCommand = env.COMSPEC || env.ComSpec || process.env.COMSPEC || process.env.ComSpec || 'cmd.exe';
+      const commandLine = [command, ...args].map((arg) => this.quoteWindowsCmdArg(arg)).join(' ');
+      const { stdout } = await execFile(shellCommand, ['/d', '/s', '/c', commandLine], {
+        env,
+        timeout: 5000,
+        windowsHide: true,
+      });
+      return stdout.trim();
+    }
+
+    const { stdout } = await execFile(command, args, {
+      env,
+      timeout: 5000,
+      windowsHide: true,
+    });
+    return stdout.trim();
   }
 
   private async connectCodebuddy(workingDir: string = process.cwd()): Promise<void> {

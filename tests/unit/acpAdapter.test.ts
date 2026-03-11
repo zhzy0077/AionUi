@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { AcpAdapter } from '../../src/agent/acp/AcpAdapter';
-import type { ToolCallUpdate, ToolCallUpdateStatus } from '../../src/types/acpTypes';
+import type { ToolCallUpdate, ToolCallUpdateStatus, UsageUpdate } from '../../src/types/acpTypes';
 
 describe('AcpAdapter - rawInput merging (#1113)', () => {
   let adapter: AcpAdapter;
@@ -139,6 +139,34 @@ describe('AcpAdapter - rawInput merging (#1113)', () => {
 
     // Should return empty array since no existing tool call found
     expect(messages).toHaveLength(0);
+  });
+});
+
+describe('AcpAdapter - session update compatibility', () => {
+  let adapter: AcpAdapter;
+
+  beforeEach(() => {
+    adapter = new AcpAdapter('test-conversation-id', 'codex');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('ignores usage_update events from newer ACP bridges without warning', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const usageUpdate: UsageUpdate = {
+      sessionId: 'test-session',
+      update: {
+        sessionUpdate: 'usage_update',
+        totalTokens: 123,
+      },
+    };
+
+    const messages = adapter.convertSessionUpdate(usageUpdate);
+
+    expect(messages).toEqual([]);
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 });
 
