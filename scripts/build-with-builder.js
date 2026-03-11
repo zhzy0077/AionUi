@@ -177,19 +177,26 @@ function repairAionCliOpenTelemetryDeps() {
     `🔧 Repairing nested OpenTelemetry deps for @office-ai/aioncli-core: ${repairs.join(', ')}`
   );
 
-  const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const result = spawnSync(
-    npmCommand,
-    ['install', '--no-save', '--ignore-scripts', '--no-package-lock', ...repairs],
-    {
-      cwd: packageDir,
-      stdio: 'inherit',
-    }
-  );
+  const installArgs = ['install', '--no-save', '--ignore-scripts', '--no-package-lock', ...repairs];
+  const result = process.platform === 'win32'
+    ? spawnSync('cmd.exe', ['/d', '/s', '/c', 'npm.cmd', ...installArgs], {
+        cwd: packageDir,
+        stdio: 'inherit',
+      })
+    : spawnSync('npm', installArgs, {
+        cwd: packageDir,
+        stdio: 'inherit',
+      });
+
+  if (result.error) {
+    throw new Error(
+      `Failed to launch nested OpenTelemetry repair command: ${result.error.message}`
+    );
+  }
 
   if (result.status !== 0) {
     throw new Error(
-      `Failed to repair nested OpenTelemetry dependencies (exit code ${result.status ?? 'unknown'})`
+      `Failed to repair nested OpenTelemetry dependencies (exit code ${result.status})`
     );
   }
 
