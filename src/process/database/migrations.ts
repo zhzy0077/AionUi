@@ -862,9 +862,7 @@ const migration_v16: IMigration = {
   version: 16,
   name: 'Add callback_enabled to api_config',
   up: (db) => {
-    const tableExists = db
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'api_config'")
-      .get() as { name: string } | undefined;
+    const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'api_config'").get() as { name: string } | undefined;
 
     if (!tableExists) {
       db.exec(`
