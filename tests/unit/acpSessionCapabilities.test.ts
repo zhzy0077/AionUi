@@ -37,6 +37,13 @@ const MODELS: AcpSessionModels = {
   availableModels: [{ id: 'gpt-4o' }, { id: 'o3' }],
 };
 
+/** Helper: inject a mock clientConnection.loadSession that returns the given value. */
+function mockClientLoadSession(conn: AcpConnection, returnValue: unknown): ReturnType<typeof vi.fn> {
+  const fn = vi.fn().mockResolvedValue(returnValue);
+  (conn as any).clientConnection = { loadSession: fn };
+  return fn;
+}
+
 // ─── AcpConnection.loadSession ───────────────────────────────────────────────
 
 describe('AcpConnection.loadSession', () => {
@@ -47,7 +54,7 @@ describe('AcpConnection.loadSession', () => {
   });
 
   it('sets sessionId from response when present', async () => {
-    vi.spyOn(conn as any, 'sendRequest').mockResolvedValue({ sessionId: 'new-session-456' });
+    mockClientLoadSession(conn, { sessionId: 'new-session-456' });
 
     await conn.loadSession('original-123', '/tmp');
 
@@ -55,28 +62,29 @@ describe('AcpConnection.loadSession', () => {
   });
 
   it('falls back to the passed sessionId when response omits it', async () => {
-    vi.spyOn(conn as any, 'sendRequest').mockResolvedValue({});
+    mockClientLoadSession(conn, {});
 
     await conn.loadSession('original-123', '/tmp');
 
     expect(conn.currentSessionId).toBe('original-123');
   });
 
-  it('calls session/load endpoint with correct params', async () => {
-    const sendRequest = vi.spyOn(conn as any, 'sendRequest').mockResolvedValue({ sessionId: 's1' });
+  it('calls clientConnection.loadSession with correct params', async () => {
+    const loadSessionMock = mockClientLoadSession(conn, { sessionId: 's1' });
     // normalizeCwdForAgent returns the absolute path for codex
     await conn.loadSession('s1', '/tmp');
 
-    expect(sendRequest).toHaveBeenCalledWith('session/load', expect.objectContaining({ sessionId: 's1' }));
+    expect(loadSessionMock).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's1' }));
   });
 
-  it('returns the raw response', async () => {
+  it('returns the response cast to AcpResponse', async () => {
     const mockResponse = { sessionId: 's1', extra: 'data' };
-    vi.spyOn(conn as any, 'sendRequest').mockResolvedValue(mockResponse);
+    mockClientLoadSession(conn, mockResponse);
 
     const result = await conn.loadSession('s1', '/tmp');
 
-    expect(result).toBe(mockResponse);
+    expect((result as any).sessionId).toBe('s1');
+    expect((result as any).extra).toBe('data');
   });
 });
 
@@ -90,7 +98,7 @@ describe('AcpConnection.parseSessionCapabilities (via loadSession)', () => {
   });
 
   it('parses configOptions from response', async () => {
-    vi.spyOn(conn as any, 'sendRequest').mockResolvedValue({ configOptions: CONFIG_OPTIONS });
+    mockClientLoadSession(conn, { configOptions: CONFIG_OPTIONS });
 
     await conn.loadSession('s1', '/tmp');
 
@@ -98,7 +106,7 @@ describe('AcpConnection.parseSessionCapabilities (via loadSession)', () => {
   });
 
   it('parses top-level models from response', async () => {
-    vi.spyOn(conn as any, 'sendRequest').mockResolvedValue({ models: MODELS });
+    mockClientLoadSession(conn, { models: MODELS });
 
     await conn.loadSession('s1', '/tmp');
 
@@ -106,7 +114,7 @@ describe('AcpConnection.parseSessionCapabilities (via loadSession)', () => {
   });
 
   it('falls back to _meta.models when top-level models is absent', async () => {
-    vi.spyOn(conn as any, 'sendRequest').mockResolvedValue({ _meta: { models: MODELS } });
+    mockClientLoadSession(conn, { _meta: { models: MODELS } });
 
     await conn.loadSession('s1', '/tmp');
 
@@ -114,7 +122,7 @@ describe('AcpConnection.parseSessionCapabilities (via loadSession)', () => {
   });
 
   it('ignores configOptions when response value is not an array', async () => {
-    vi.spyOn(conn as any, 'sendRequest').mockResolvedValue({ configOptions: 'bad-value' });
+    mockClientLoadSession(conn, { configOptions: 'bad-value' });
 
     await conn.loadSession('s1', '/tmp');
 
@@ -122,7 +130,7 @@ describe('AcpConnection.parseSessionCapabilities (via loadSession)', () => {
   });
 
   it('does not overwrite models when response has no models field', async () => {
-    vi.spyOn(conn as any, 'sendRequest').mockResolvedValue({});
+    mockClientLoadSession(conn, {});
 
     await conn.loadSession('s1', '/tmp');
 

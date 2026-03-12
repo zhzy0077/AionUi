@@ -4,10 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { AcpBackend, AcpIncomingMessage, AcpMessage, AcpNotification, AcpPermissionRequest, AcpRequest, AcpResponse, AcpSessionConfigOption, AcpSessionModels, AcpSessionUpdate } from '@/types/acpTypes';
-import { ACP_METHODS, CLAUDE_ACP_NPX_PACKAGE, CODEX_ACP_BRIDGE_VERSION, CODEX_ACP_NPX_PACKAGE, JSONRPC_VERSION } from '@/types/acpTypes';
+import * as acp from '@agentclientprotocol/sdk';
+import type { AcpBackend, AcpPermissionRequest, AcpResponse, AcpSessionConfigOption, AcpSessionModels, AcpSessionUpdate } from '@/types/acpTypes';
+import { CLAUDE_ACP_NPX_PACKAGE, CODEX_ACP_BRIDGE_VERSION, CODEX_ACP_NPX_PACKAGE } from '@/types/acpTypes';
 import type { ChildProcess, SpawnOptions } from 'child_process';
 import { execFile as execFileCb, execFileSync, spawn } from 'child_process';
+import { Readable, Writable } from 'stream';
 import { promisify } from 'util';
 import { buildAcpModelInfo, summarizeAcpModelInfo } from './modelInfo';
 import { mainLog, mainWarn } from '@process/utils/mainLogger';
@@ -20,16 +22,6 @@ import { findSuitableNodeBin, getEnhancedEnv, resolveNpxPath } from '@process/ut
 
 /** Enable ACP performance diagnostics via ACP_PERF=1 */
 const ACP_PERF_LOG = process.env.ACP_PERF === '1';
-
-interface PendingRequest<T = unknown> {
-  resolve: (value: T) => void;
-  reject: (error: Error) => void;
-  timeoutId?: NodeJS.Timeout;
-  method: string;
-  isPaused: boolean;
-  startTime: number;
-  timeoutDuration: number;
-}
 
 /**
  * Creates spawn configuration for ACP CLI commands.
@@ -90,8 +82,10 @@ export function createGenericSpawnConfig(cliPath: string, workingDir: string, ac
 
 export class AcpConnection {
   private child: ChildProcess | null = null;
-  private pendingRequests = new Map<number, PendingRequest<unknown>>();
-  private nextRequestId = 0;
+  private clientConnection: acp.ClientSideConnection | null = null;
+  private promptTimeoutId: NodeJS.Timeout | null = null;
+  private promptTimeoutReject: ((e: Error) => void) | null = null;
+  private promptResetFn: (() => void) | null = null;
   private sessionId: string | null = null;
   private isInitialized = false;
   private backend: AcpBackend | null = null;
@@ -634,32 +628,12 @@ export class AcpConnection {
       throw new Error(`${backend} ACP process failed to start or exited immediately`);
     }
 
-    // Handle messages from ACP server
-    let buffer = '';
-    child.stdout?.on('data', (data: Buffer) => {
-      const dataStr = data.toString();
-      buffer += dataStr;
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.trim()) {
-          try {
-            const handleStart = ACP_PERF_LOG ? Date.now() : 0;
-            const message = JSON.parse(line) as AcpMessage;
-            this.handleMessage(message);
-            if (ACP_PERF_LOG) {
-              const handleDuration = Date.now() - handleStart;
-              if (handleDuration > 5) {
-                console.log(`[ACP-PERF] stream: handleMessage ${handleDuration}ms method=${'method' in message ? (message as AcpIncomingMessage).method : 'response'}`);
-              }
-            }
-          } catch (error) {
-            // Ignore parsing errors for non-JSON messages
-          }
-        }
-      }
-    });
+    // Create SDK stream connection over child process stdio
+    const output = Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>;
+    const input = Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>;
+    const stream = acp.ndJsonStream(output, input);
+    const client = this.buildProtocolClient();
+    this.clientConnection = new acp.ClientSideConnection((_agent) => client, stream);
 
     // Initialize protocol with timeout, also racing against early process exit
     const initStart = Date.now();
@@ -687,20 +661,22 @@ export class AcpConnection {
   }
 
   /**
-   * Handle unexpected process exit during runtime
-   * Similar to Codex's handleProcessExit implementation
+   * Handle unexpected process exit during runtime.
    */
   private handleProcessExit(code: number | null, signal: NodeJS.Signals | null): void {
-    // 1. Reject all pending requests with clear error message
-    for (const [_id, request] of this.pendingRequests) {
-      if (request.timeoutId) {
-        clearTimeout(request.timeoutId);
-      }
-      request.reject(new Error(`ACP process exited unexpectedly (code: ${code}, signal: ${signal})`));
+    // Reject any pending prompt request
+    if (this.promptTimeoutReject) {
+      this.promptTimeoutReject(new Error(`ACP process exited unexpectedly (code: ${code}, signal: ${signal})`));
+      this.promptTimeoutReject = null;
     }
-    this.pendingRequests.clear();
+    if (this.promptTimeoutId) {
+      clearTimeout(this.promptTimeoutId);
+      this.promptTimeoutId = null;
+    }
+    this.promptResetFn = null;
 
-    // 2. Clear connection state
+    // Clear connection state
+    this.clientConnection = null;
     this.sessionId = null;
     this.isInitialized = false;
     this.isSetupComplete = false;
@@ -711,280 +687,70 @@ export class AcpConnection {
     this.models = null;
     this.child = null;
 
-    // 3. Notify AcpAgent about disconnect
+    // Notify AcpAgent about disconnect
     this.onDisconnect({ code, signal });
   }
 
-  private sendRequest<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
-    const id = this.nextRequestId++;
-    const message: AcpRequest = {
-      jsonrpc: JSONRPC_VERSION,
-      id,
-      method,
-      ...(params && { params }),
-    };
-
-    return new Promise((resolve, reject) => {
-      // Use longer timeout for session/prompt requests as they involve LLM processing
-      // Complex tasks like document processing may need significantly more time
-      const timeoutDuration = method === 'session/prompt' ? 300000 : 60000; // 5 minutes for prompts, 1 minute for others
-      const startTime = Date.now();
-
-      const createTimeoutHandler = () => {
-        return setTimeout(() => {
-          const request = this.pendingRequests.get(id);
-          if (request && !request.isPaused) {
-            this.pendingRequests.delete(id);
-            const timeoutMsg = method === 'session/prompt' ? `LLM request timed out after ${timeoutDuration / 1000} seconds` : `Request ${method} timed out after ${timeoutDuration / 1000} seconds`;
-            reject(new Error(timeoutMsg));
-          }
-        }, timeoutDuration);
-      };
-
-      const initialTimeout = createTimeoutHandler();
-
-      const pendingRequest: PendingRequest<T> = {
-        resolve: (value: T) => {
-          if (pendingRequest.timeoutId) {
-            clearTimeout(pendingRequest.timeoutId);
-          }
-          resolve(value);
-        },
-        reject: (error: Error) => {
-          if (pendingRequest.timeoutId) {
-            clearTimeout(pendingRequest.timeoutId);
-          }
-          reject(error);
-        },
-        timeoutId: initialTimeout,
-        method,
-        isPaused: false,
-        startTime,
-        timeoutDuration,
-      };
-
-      this.pendingRequests.set(id, pendingRequest);
-
-      this.sendMessage(message);
-    });
-  }
-
-  // 暂停指定请求的超时计时器
-  private pauseRequestTimeout(requestId: number): void {
-    const request = this.pendingRequests.get(requestId);
-    if (request && !request.isPaused && request.timeoutId) {
-      clearTimeout(request.timeoutId);
-      request.isPaused = true;
-      request.timeoutId = undefined;
-    }
-  }
-
-  // 恢复指定请求的超时计时器
-  private resumeRequestTimeout(requestId: number): void {
-    const request = this.pendingRequests.get(requestId);
-    if (request && request.isPaused) {
-      const elapsedTime = Date.now() - request.startTime;
-      const remainingTime = Math.max(0, request.timeoutDuration - elapsedTime);
-
-      if (remainingTime > 0) {
-        request.timeoutId = setTimeout(() => {
-          if (this.pendingRequests.has(requestId) && !request.isPaused) {
-            this.pendingRequests.delete(requestId);
-            request.reject(new Error(`Request ${request.method} timed out`));
-          }
-        }, remainingTime);
-        request.isPaused = false;
-      } else {
-        // 时间已超过，立即触发超时
-        this.pendingRequests.delete(requestId);
-        request.reject(new Error(`Request ${request.method} timed out`));
-      }
-    }
-  }
-
-  // 暂停所有 session/prompt 请求的超时
-  private pauseSessionPromptTimeouts(): void {
-    let _pausedCount = 0;
-    for (const [id, request] of this.pendingRequests) {
-      if (request.method === 'session/prompt') {
-        this.pauseRequestTimeout(id);
-        _pausedCount++;
-      }
-    }
-  }
-
-  // 恢复所有 session/prompt 请求的超时
-  private resumeSessionPromptTimeouts(): void {
-    let _resumedCount = 0;
-    for (const [id, request] of this.pendingRequests) {
-      if (request.method === 'session/prompt' && request.isPaused) {
-        this.resumeRequestTimeout(id);
-        _resumedCount++;
-      }
-    }
-  }
-
-  // 重置所有 session/prompt 请求的超时计时器（在收到流式更新时调用）
-  // Reset timeout timers for all session/prompt requests (called when receiving streaming updates)
-  private resetSessionPromptTimeouts(): void {
-    for (const [id, request] of this.pendingRequests) {
-      if (request.method === 'session/prompt' && !request.isPaused && request.timeoutId) {
-        // Clear existing timeout
-        clearTimeout(request.timeoutId);
-        // Reset start time and create new timeout
-        request.startTime = Date.now();
-        request.timeoutId = setTimeout(() => {
-          if (this.pendingRequests.has(id) && !request.isPaused) {
-            this.pendingRequests.delete(id);
-            request.reject(new Error(`LLM request timed out after ${request.timeoutDuration / 1000} seconds`));
-          }
-        }, request.timeoutDuration);
-      }
-    }
-  }
-
-  private sendMessage(message: AcpRequest | AcpNotification): void {
-    if (this.child?.stdin) {
-      const jsonString = JSON.stringify(message);
-      // Windows 可能需要 \r\n 换行符
-      const lineEnding = process.platform === 'win32' ? '\r\n' : '\n';
-      const fullMessage = jsonString + lineEnding;
-
-      this.child.stdin.write(fullMessage);
-    } else {
-      // Child process not available, cannot send message
-    }
-  }
-
-  private sendResponseMessage(response: AcpResponse): void {
-    if (this.child?.stdin) {
-      const jsonString = JSON.stringify(response);
-      // Windows 可能需要 \r\n 换行符
-      const lineEnding = process.platform === 'win32' ? '\r\n' : '\n';
-      const fullMessage = jsonString + lineEnding;
-
-      this.child.stdin.write(fullMessage);
-    }
-  }
-
-  private handleMessage(message: AcpMessage): void {
-    try {
-      // 优先检查是否为 request/notification（有 method 字段）
-      if ('method' in message) {
-        // 直接传递给 handleIncomingRequest，switch 会过滤未知 method
-        this.handleIncomingRequest(message as AcpIncomingMessage).catch((_error) => {
-          // Handle request errors silently
-        });
-      } else if ('id' in message && typeof message.id === 'number' && this.pendingRequests.has(message.id)) {
-        // This is a response to a previous request
-        const { resolve, reject } = this.pendingRequests.get(message.id)!;
-        this.pendingRequests.delete(message.id);
-
-        if ('result' in message) {
-          // Check for end_turn message
-          if (message.result && typeof message.result === 'object' && (message.result as Record<string, unknown>).stopReason === 'end_turn') {
-            this.onEndTurn();
-          }
-          resolve(message.result);
-        } else if ('error' in message) {
-          const errorMsg = message.error?.message || 'Unknown ACP error';
-          reject(new Error(errorMsg));
+  /**
+   * Build the ACP Client interface that delegates to this connection's callbacks.
+   * Passed to ClientSideConnection so the SDK can call our handlers for incoming
+   * agent requests (sessionUpdate, requestPermission, readTextFile, writeTextFile).
+   */
+  private buildProtocolClient(): acp.Client {
+    return {
+      sessionUpdate: async (params: acp.SessionNotification) => {
+        // Reset prompt timeout on every streaming update — LLM is still active
+        this.promptResetFn?.();
+        // Track first chunk latency since prompt was sent
+        if (!this.firstChunkReceived && this.lastPromptSentAt > 0) {
+          this.firstChunkReceived = true;
+          if (ACP_PERF_LOG) console.log(`[ACP-PERF] stream: first chunk received ${Date.now() - this.lastPromptSentAt}ms (since prompt sent)`);
         }
-      } else {
-        // Unknown message format, ignore
-      }
-    } catch (_error) {
-      // Handle message parsing errors silently
+        // Update cached configOptions when config_option_update arrives
+        if (params.update && (params.update as Record<string, unknown>).sessionUpdate === 'config_option_update') {
+          const updatePayload = params.update as { configOptions?: AcpSessionConfigOption[] };
+          if (Array.isArray(updatePayload.configOptions)) {
+            this.configOptions = updatePayload.configOptions;
+          }
+        }
+        this.onSessionUpdate(params as unknown as AcpSessionUpdate);
+      },
+
+      requestPermission: async (params: acp.RequestPermissionRequest): Promise<acp.RequestPermissionResponse> => {
+        // Pause prompt timeout while waiting for user input
+        this.pauseCurrentPromptTimeout();
+        try {
+          const { optionId } = await this.onPermissionRequest(params as unknown as AcpPermissionRequest);
+          return { outcome: { outcome: 'selected', optionId } };
+        } catch {
+          return { outcome: { outcome: 'cancelled' } };
+        } finally {
+          // Resume prompt timeout after user responds
+          this.resumeCurrentPromptTimeout();
+        }
+      },
+
+      readTextFile: async (params: acp.ReadTextFileRequest): Promise<acp.ReadTextFileResponse> => {
+        return await this.handleReadOperation({ path: params.path, sessionId: params.sessionId });
+      },
+
+      writeTextFile: async (params: acp.WriteTextFileRequest): Promise<acp.WriteTextFileResponse> => {
+        await this.handleWriteOperation({ path: params.path, content: params.content, sessionId: params.sessionId });
+        return {};
+      },
+    };
+  }
+
+  private pauseCurrentPromptTimeout(): void {
+    if (this.promptTimeoutId) {
+      clearTimeout(this.promptTimeoutId);
+      this.promptTimeoutId = null;
     }
   }
 
-  private async handleIncomingRequest(message: AcpIncomingMessage): Promise<void> {
-    try {
-      let result = null;
-
-      // 可辨识联合类型：TypeScript 根据 method 字面量自动窄化 params 类型
-      switch (message.method) {
-        case ACP_METHODS.SESSION_UPDATE:
-          // Track first chunk latency since prompt was sent
-          if (!this.firstChunkReceived && this.lastPromptSentAt > 0) {
-            this.firstChunkReceived = true;
-            if (ACP_PERF_LOG) console.log(`[ACP-PERF] stream: first chunk received ${Date.now() - this.lastPromptSentAt}ms (since prompt sent)`);
-          }
-          // Reset timeout on streaming updates - LLM is still processing
-          this.resetSessionPromptTimeouts();
-          // Update cached configOptions when config_option_update arrives
-          if (message.params?.update && (message.params.update as Record<string, unknown>).sessionUpdate === 'config_option_update') {
-            const updatePayload = message.params.update as { configOptions?: AcpSessionConfigOption[] };
-            if (Array.isArray(updatePayload.configOptions)) {
-              this.configOptions = updatePayload.configOptions;
-            }
-          }
-          this.onSessionUpdate(message.params);
-          break;
-        case ACP_METHODS.REQUEST_PERMISSION:
-          result = await this.handlePermissionRequest(message.params);
-          break;
-        case ACP_METHODS.READ_TEXT_FILE:
-          result = await this.handleReadOperation(message.params);
-          break;
-        case ACP_METHODS.WRITE_TEXT_FILE:
-          result = await this.handleWriteOperation(message.params);
-          break;
-      }
-
-      // If this is a request (has id), send response
-      if ('id' in message && typeof message.id === 'number') {
-        this.sendResponseMessage({
-          jsonrpc: JSONRPC_VERSION,
-          id: message.id,
-          result,
-        });
-      }
-    } catch (error) {
-      if ('id' in message && typeof message.id === 'number') {
-        this.sendResponseMessage({
-          jsonrpc: JSONRPC_VERSION,
-          id: message.id,
-          error: {
-            code: -32603,
-            message: error instanceof Error ? error.message : String(error),
-          },
-        });
-      }
-    }
-  }
-
-  private async handlePermissionRequest(params: AcpPermissionRequest): Promise<{
-    outcome: { outcome: string; optionId: string };
-  }> {
-    // 暂停所有 session/prompt 请求的超时计时器
-    this.pauseSessionPromptTimeouts();
-    try {
-      const response = await this.onPermissionRequest(params);
-
-      // 根据用户的选择决定outcome
-      const optionId = response.optionId;
-      const outcome = optionId.includes('reject') ? 'rejected' : 'selected';
-
-      return {
-        outcome: {
-          outcome,
-          optionId: optionId,
-        },
-      };
-    } catch (error) {
-      // 处理超时或其他错误情况，默认拒绝
-      console.error('Permission request failed:', error);
-      return {
-        outcome: {
-          outcome: 'rejected',
-          optionId: 'reject_once', // 默认拒绝
-        },
-      };
-    } finally {
-      // 无论成功还是失败，都恢复 session/prompt 请求的超时计时器
-      this.resumeSessionPromptTimeouts();
-    }
+  private resumeCurrentPromptTimeout(): void {
+    // Restart with full duration (conservative: permission wait doesn't consume LLM timeout)
+    this.promptResetFn?.();
   }
 
   private async handleReadTextFile(params: { path: string }): Promise<{ content: string }> {
@@ -1037,26 +803,22 @@ export class AcpConnection {
     return path.join(this.workingDir, targetPath);
   }
 
-  private async initialize(): Promise<AcpResponse> {
-    const initializeParams = {
-      protocolVersion: 1,
+  private async initialize(): Promise<void> {
+    const result = await this.clientConnection!.initialize({
+      protocolVersion: acp.PROTOCOL_VERSION,
       clientCapabilities: {
-        fs: {
-          readTextFile: true,
-          writeTextFile: true,
-        },
+        fs: { readTextFile: true, writeTextFile: true },
       },
-    };
-
-    const response = await this.sendRequest<AcpResponse>('initialize', initializeParams);
+    });
     this.isInitialized = true;
-    this.initializeResponse = response;
-    return response;
+    this.initializeResponse = result as unknown as AcpResponse;
   }
 
   async authenticate(methodId?: string): Promise<AcpResponse> {
-    const result = await this.sendRequest<AcpResponse>('authenticate', methodId ? { methodId } : undefined);
-    return result;
+    const result = await this.clientConnection!.authenticate({
+      methodId: methodId ?? '',
+    });
+    return result as unknown as AcpResponse;
   }
 
   /**
@@ -1089,26 +851,29 @@ export class AcpConnection {
         }
       : undefined;
 
-    const response = await this.sendRequest<AcpResponse & { sessionId?: string }>('session/new', {
+    // Non-standard extension fields are passed via type assertion; the SDK serializes all fields as-is
+    const params = {
       cwd: normalizedCwd,
-      mcpServers: [] as unknown[],
+      mcpServers: [],
       // Claude/CodeBuddy ACP uses _meta for resume
       ...(meta && { _meta: meta }),
       // Generic resume parameters for other ACP backends
       ...(this.backend !== 'claude' && this.backend !== 'codebuddy' && options?.resumeSessionId && { resumeSessionId: options.resumeSessionId }),
       ...(options?.forkSession && { forkSession: options.forkSession }),
-    });
+    } as acp.NewSessionRequest;
 
-    this.sessionId = response.sessionId;
+    const result = await this.clientConnection!.newSession(params);
 
-    this.parseSessionCapabilities(response);
+    this.sessionId = result.sessionId ?? null;
+
+    this.parseSessionCapabilities(result);
 
     // Debug: log full session/new response only when ACP_PERF=1
     if (ACP_PERF_LOG) {
-      console.log(`[ACP ${this.backend}] session/new response:`, JSON.stringify(response, null, 2));
+      console.log(`[ACP ${this.backend}] session/new response:`, JSON.stringify(result, null, 2));
     }
 
-    return response;
+    return result as unknown as AcpResponse & { sessionId?: string };
   }
 
   /**
@@ -1122,20 +887,20 @@ export class AcpConnection {
   async loadSession(sessionId: string, cwd: string = process.cwd()): Promise<AcpResponse & { sessionId?: string }> {
     const normalizedCwd = this.normalizeCwdForAgent(cwd);
 
-    const response = await this.sendRequest<AcpResponse & { sessionId?: string }>('session/load', {
+    const result = await this.clientConnection!.loadSession({
       sessionId,
       cwd: normalizedCwd,
-      mcpServers: [] as unknown[],
+      mcpServers: [],
     });
 
     // session/load returns modes/models/configOptions but not sessionId — keep the one we sent
-    this.sessionId = response.sessionId || sessionId;
+    this.sessionId = (result as unknown as { sessionId?: string }).sessionId ?? sessionId;
 
     mainLog(`[ACP ${this.backend}]`, 'session/load completed', { sessionId: this.sessionId });
 
-    this.parseSessionCapabilities(response);
+    this.parseSessionCapabilities(result);
 
-    return response;
+    return result as unknown as AcpResponse & { sessionId?: string };
   }
 
   /**
@@ -1205,10 +970,34 @@ export class AcpConnection {
     this.firstChunkReceived = false;
     if (ACP_PERF_LOG) console.log(`[ACP-PERF] send: prompt sent to ${this.backend}`);
 
-    return await this.sendRequest('session/prompt', {
-      sessionId: this.sessionId,
-      prompt: [{ type: 'text', text: prompt }],
+    const TIMEOUT_MS = 300_000;
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      this.promptTimeoutReject = reject;
+      const reset = () => {
+        if (this.promptTimeoutId) clearTimeout(this.promptTimeoutId);
+        this.promptTimeoutId = setTimeout(() => reject(new Error(`LLM request timed out after ${TIMEOUT_MS / 1000} seconds`)), TIMEOUT_MS);
+      };
+      this.promptResetFn = reset;
+      reset();
     });
+
+    try {
+      const result = await Promise.race([
+        this.clientConnection!.prompt({
+          sessionId: this.sessionId as acp.SessionId,
+          prompt: [{ type: 'text', text: prompt }],
+        }),
+        timeoutPromise,
+      ]);
+      if (result.stopReason === 'end_turn') this.onEndTurn();
+      return result as unknown as AcpResponse;
+    } finally {
+      if (this.promptTimeoutId) clearTimeout(this.promptTimeoutId);
+      this.promptTimeoutId = null;
+      this.promptTimeoutReject = null;
+      this.promptResetFn = null;
+    }
   }
 
   async setSessionMode(modeId: string): Promise<AcpResponse> {
@@ -1216,10 +1005,11 @@ export class AcpConnection {
       throw new Error('No active ACP session');
     }
 
-    return await this.sendRequest('session/set_mode', {
-      sessionId: this.sessionId,
+    const result = await this.clientConnection!.setSessionMode({
+      sessionId: this.sessionId as acp.SessionId,
       modeId,
     });
+    return result as unknown as AcpResponse;
   }
 
   async setModel(modelId: string): Promise<AcpResponse> {
@@ -1227,8 +1017,8 @@ export class AcpConnection {
       throw new Error('No active ACP session');
     }
 
-    const response = await this.sendRequest<AcpResponse>('session/set_model', {
-      sessionId: this.sessionId,
+    const result = await this.clientConnection!.unstable_setSessionModel({
+      sessionId: this.sessionId as acp.SessionId,
       modelId,
     });
 
@@ -1244,7 +1034,7 @@ export class AcpConnection {
       this.configOptions = this.configOptions.map((opt) => (opt.category === 'model' ? { ...opt, currentValue: modelId, selectedValue: modelId } : opt));
     }
 
-    return response;
+    return result as unknown as AcpResponse;
   }
 
   async setConfigOption(configId: string, value: string): Promise<AcpResponse> {
@@ -1252,16 +1042,15 @@ export class AcpConnection {
       throw new Error('No active ACP session');
     }
 
-    const response = await this.sendRequest<AcpResponse>(ACP_METHODS.SET_CONFIG_OPTION, {
-      sessionId: this.sessionId,
+    const result = await this.clientConnection!.setSessionConfigOption({
+      sessionId: this.sessionId as acp.SessionId,
       configId,
       value,
-    });
+    } as acp.SetSessionConfigOptionRequest);
 
-    // The response may contain the updated configOptions
-    const result = response as unknown as Record<string, unknown>;
+    // The response contains the updated configOptions
     if (Array.isArray(result.configOptions)) {
-      this.configOptions = result.configOptions as AcpSessionConfigOption[];
+      this.configOptions = result.configOptions as unknown as AcpSessionConfigOption[];
     } else if (this.configOptions) {
       // Optimistically update the cached currentValue so getModelInfo() reflects
       // the switch immediately, even if the agent responds without configOptions.
@@ -1269,7 +1058,7 @@ export class AcpConnection {
       this.configOptions = this.configOptions.map((opt) => (opt.id === configId ? { ...opt, currentValue: value, selectedValue: value } : opt));
     }
 
-    return response;
+    return result as unknown as AcpResponse;
   }
 
   getConfigOptions(): AcpSessionConfigOption[] | null {
@@ -1284,7 +1073,7 @@ export class AcpConnection {
     await this.terminateChild();
 
     // Reset session-level state
-    this.pendingRequests.clear();
+    this.clientConnection = null;
     this.sessionId = null;
     this.isInitialized = false;
     this.isSetupComplete = false;

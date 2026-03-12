@@ -103,6 +103,7 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^0.16.1",
     "@anthropic-ai/sdk": "^0.71.2",
     "@arco-design/web-react": "^2.66.1",
     "@aws-sdk/client-bedrock": "^3.987.0",
