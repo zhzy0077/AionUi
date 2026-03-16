@@ -121,6 +121,17 @@ export interface IConfigStorageRefer {
     customAgentId?: string;
     name?: string;
   };
+  // QQ Bot assistant default model / QQ Bot 助手默认模型
+  'assistant.qqbot.defaultModel'?: {
+    id: string;
+    useModel: string;
+  };
+  // QQ Bot assistant agent selection / QQ Bot 助手所使用的 Agent
+  'assistant.qqbot.agent'?: {
+    backend: AcpBackendAll;
+    customAgentId?: string;
+    name?: string;
+  };
 }
 
 export interface IEnvStorageRefer {

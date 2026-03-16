@@ -21,9 +21,10 @@ import ChannelItem from './channels/ChannelItem';
 import type { ChannelConfig } from './channels/types';
 import DingTalkConfigForm from './DingTalkConfigForm';
 import LarkConfigForm from './LarkConfigForm';
+import QQBotConfigForm from './QQBotConfigForm';
 import TelegramConfigForm from './TelegramConfigForm';
 
-type ChannelModelConfigKey = 'assistant.telegram.defaultModel' | 'assistant.lark.defaultModel' | 'assistant.dingtalk.defaultModel';
+type ChannelModelConfigKey = 'assistant.telegram.defaultModel' | 'assistant.lark.defaultModel' | 'assistant.dingtalk.defaultModel' | 'assistant.qqbot.defaultModel';
 
 type ExtensionFieldType = 'text' | 'password' | 'select' | 'number' | 'boolean';
 
@@ -38,7 +39,7 @@ type ExtensionFieldSchema = {
 
 type ExtensionFieldValues = Record<string, Record<string, string | number | boolean>>;
 
-const BUILTIN_CHANNEL_TYPES = new Set(['telegram', 'lark', 'dingtalk', 'slack', 'discord']);
+const BUILTIN_CHANNEL_TYPES = new Set(['telegram', 'lark', 'dingtalk', 'qqbot', 'slack', 'discord']);
 
 /**
  * Internal hook: wraps useGeminiModelSelection with ConfigStorage persistence
@@ -143,9 +144,11 @@ const ChannelModalContent: React.FC = () => {
   const [pluginStatus, setPluginStatus] = useState<IChannelPluginStatus | null>(null);
   const [larkPluginStatus, setLarkPluginStatus] = useState<IChannelPluginStatus | null>(null);
   const [dingtalkPluginStatus, setDingtalkPluginStatus] = useState<IChannelPluginStatus | null>(null);
+  const [qqbotPluginStatus, setQqbotPluginStatus] = useState<IChannelPluginStatus | null>(null);
   const [enableLoading, setEnableLoading] = useState(false);
   const [larkEnableLoading, setLarkEnableLoading] = useState(false);
   const [dingtalkEnableLoading, setDingtalkEnableLoading] = useState(false);
+  const [qqbotEnableLoading, setQqbotEnableLoading] = useState(false);
   const [extensionStatuses, setExtensionStatuses] = useState<Record<string, IChannelPluginStatus>>({});
   const [extensionLoadingMap, setExtensionLoadingMap] = useState<Record<string, boolean>>({});
   const [extensionFieldValues, setExtensionFieldValues] = useState<ExtensionFieldValues>({});
@@ -161,12 +164,14 @@ const ChannelModalContent: React.FC = () => {
     discord: true,
     lark: true,
     dingtalk: true,
+    qqbot: true,
   });
 
   // Model selection state — uses unified hook with ConfigStorage persistence
   const telegramModelSelection = useChannelModelSelection('assistant.telegram.defaultModel');
   const larkModelSelection = useChannelModelSelection('assistant.lark.defaultModel');
   const dingtalkModelSelection = useChannelModelSelection('assistant.dingtalk.defaultModel');
+  const qqbotModelSelection = useChannelModelSelection('assistant.qqbot.defaultModel');
 
   // Load plugin status
   const loadPluginStatus = useCallback(async () => {
@@ -176,11 +181,13 @@ const ChannelModalContent: React.FC = () => {
         const telegramPlugin = result.data.find((p) => p.type === 'telegram');
         const larkPlugin = result.data.find((p) => p.type === 'lark');
         const dingtalkPlugin = result.data.find((p) => p.type === 'dingtalk');
+        const qqbotPlugin = result.data.find((p) => p.type === 'qqbot');
         const extensionPlugins = result.data.filter((p) => !BUILTIN_CHANNEL_TYPES.has(p.type));
 
         setPluginStatus(telegramPlugin || null);
         setLarkPluginStatus(larkPlugin || null);
         setDingtalkPluginStatus(dingtalkPlugin || null);
+        setQqbotPluginStatus(qqbotPlugin || null);
         setExtensionStatuses(() => {
           const next: Record<string, IChannelPluginStatus> = {};
           for (const plugin of extensionPlugins) {
@@ -380,6 +387,45 @@ const ChannelModalContent: React.FC = () => {
     }
   };
 
+  // Enable/Disable QQBot plugin
+  const handleToggleQqbotPlugin = async (enabled: boolean) => {
+    setQqbotEnableLoading(true);
+    try {
+      if (enabled) {
+        if (!qqbotPluginStatus?.hasToken) {
+          Message.warning(t('settings.qqbot.credentialsRequired', 'Please configure QQ Bot credentials first'));
+          setQqbotEnableLoading(false);
+          return;
+        }
+
+        const result = await channel.enablePlugin.invoke({
+          pluginId: 'qqbot_default',
+          config: {},
+        });
+
+        if (result.success) {
+          Message.success(t('settings.qqbot.pluginEnabled', 'QQ Bot enabled'));
+          await loadPluginStatus();
+        } else {
+          Message.error(result.msg || t('settings.qqbot.enableFailed', 'Failed to enable QQ Bot plugin'));
+        }
+      } else {
+        const result = await channel.disablePlugin.invoke({ pluginId: 'qqbot_default' });
+
+        if (result.success) {
+          Message.success(t('settings.qqbot.pluginDisabled', 'QQ Bot disabled'));
+          await loadPluginStatus();
+        } else {
+          Message.error(result.msg || t('settings.qqbot.disableFailed', 'Failed to disable QQ Bot plugin'));
+        }
+      }
+    } catch (error: any) {
+      Message.error(error.message);
+    } finally {
+      setQqbotEnableLoading(false);
+    }
+  };
+
   const updateExtensionFieldValue = useCallback((pluginType: string, key: string, value: string | number | boolean) => {
     setExtensionFieldValues((prev) => ({
       ...prev,
@@ -566,6 +612,18 @@ const ChannelModalContent: React.FC = () => {
       content: <DingTalkConfigForm pluginStatus={dingtalkPluginStatus} modelSelection={dingtalkModelSelection} onStatusChange={setDingtalkPluginStatus} />,
     };
 
+    const qqbotChannel: ChannelConfig = {
+      id: 'qqbot',
+      title: t('settings.channels.qqbotTitle', 'QQ Bot'),
+      description: t('settings.channels.qqbotDesc', 'Chat with AionUi assistant via QQ Bot'),
+      status: 'active',
+      enabled: qqbotPluginStatus?.enabled || false,
+      disabled: qqbotEnableLoading,
+      isConnected: qqbotPluginStatus?.connected || false,
+      defaultModel: qqbotModelSelection.currentModel?.useModel,
+      content: <QQBotConfigForm pluginStatus={qqbotPluginStatus} modelSelection={qqbotModelSelection} onStatusChange={setQqbotPluginStatus} />,
+    };
+
     const extensionChannels: ChannelConfig[] = Object.values(extensionStatuses)
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((status) => ({
@@ -603,14 +661,15 @@ const ChannelModalContent: React.FC = () => {
       },
     ].filter((channel) => !extensionTypeSet.has(String(channel.id).toLowerCase()));
 
-    return [telegramChannel, larkChannel, dingtalkChannel, ...extensionChannels, ...comingSoonChannels];
-  }, [pluginStatus, larkPluginStatus, dingtalkPluginStatus, extensionStatuses, extensionLoadingMap, telegramModelSelection, larkModelSelection, dingtalkModelSelection, enableLoading, larkEnableLoading, dingtalkEnableLoading, renderExtensionConfigForm, t]);
+    return [telegramChannel, larkChannel, dingtalkChannel, qqbotChannel, ...extensionChannels, ...comingSoonChannels];
+  }, [pluginStatus, larkPluginStatus, dingtalkPluginStatus, qqbotPluginStatus, extensionStatuses, extensionLoadingMap, telegramModelSelection, larkModelSelection, dingtalkModelSelection, qqbotModelSelection, enableLoading, larkEnableLoading, dingtalkEnableLoading, qqbotEnableLoading, renderExtensionConfigForm, t]);
 
   // Get toggle handler for each channel
   const getToggleHandler = (channelId: string) => {
     if (channelId === 'telegram') return handleTogglePlugin;
     if (channelId === 'lark') return handleToggleLarkPlugin;
     if (channelId === 'dingtalk') return handleToggleDingtalkPlugin;
+    if (channelId === 'qqbot') return handleToggleQqbotPlugin;
     if (extensionStatuses[channelId]) {
       return (enabled: boolean) => {
         void handleToggleExtensionPlugin(channelId, enabled);
