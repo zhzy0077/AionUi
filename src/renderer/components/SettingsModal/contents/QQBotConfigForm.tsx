@@ -269,7 +269,7 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
         </div>
 
         {/* Test Connection Button */}
-        <div className='mt-16px flex gap-12px'>
+        <div className='mt-16px flex justify-end gap-12px'>
           <Button type='primary' loading={testLoading} onClick={handleTest} disabled={!appId.trim() || !appSecret.trim() || isConnected}>
             {t('settings.qqbot.testAndConnect', 'Test & Connect')}
           </Button>
