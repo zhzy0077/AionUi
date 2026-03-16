@@ -549,7 +549,7 @@ const WebuiModalContent: React.FC = () => {
   };
   const displayPassword = getDisplayPassword();
 
-  // 浏览器端显示 WebUI 配置和 Channels 配置 / In browser mode, show both WebUI config and Channels config
+  // 浏览器端显示 WebUI 配置和 Channels 配置（启用 WebUI 和允许远程访问开关在浏览器端禁用）/ In browser mode, show both WebUI config and Channels config (Enable WebUI and Allow Remote switches are disabled in browser)
 
   const webuiPanel = (
     <AionScrollArea className='flex-1 min-h-0 pb-16px' disableOverflow={isPageMode}>
