@@ -236,7 +236,7 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
     <div className='flex flex-col gap-16px'>
       {/* Credentials Section */}
       <div>
-        <SectionHeader title={t('settings.channels.qqbotTitle', 'QQ Bot Configuration')} action={hasCredentials && <span className='text-12px text-t-secondary'>{t('settings.qqbot.credentialsSaved', 'Credentials already configured. Enter new values to update.')}</span>} />
+        {hasCredentials && <div className='text-12px text-t-secondary mb-12px'>{t('settings.qqbot.credentialsSaved', 'Credentials already configured. Enter new values to update.')}</div>}
 
         <div className='bg-bg-tertiary rounded-8px px-16px'>
           <PreferenceRow label={t('settings.qqbot.appId', 'App ID')} required>
