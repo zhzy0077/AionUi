@@ -107,7 +107,7 @@ const useChannelModelSelection = (configKey: ChannelModelConfigKey): GeminiModel
         await ConfigStorage.set(configKey, modelRef);
 
         // Derive platform from configKey and sync to channel system
-        const platform = configKey.replace('assistant.', '').replace('.defaultModel', '') as 'telegram' | 'lark' | 'dingtalk';
+        const platform = configKey.replace('assistant.', '').replace('.defaultModel', '') as 'telegram' | 'lark' | 'dingtalk' | 'qqbot';
         const agentKey = `assistant.${platform}.agent` as const;
         const currentAgent = await ConfigStorage.get(agentKey);
         await channel.syncChannelSettings
@@ -156,6 +156,9 @@ const ChannelModalContent: React.FC = () => {
 
   // Track the token entered in TelegramConfigForm so the toggle handler can use it
   const telegramTokenRef = React.useRef<string>('');
+
+  // Track the credentials entered in QQBotConfigForm so the toggle handler can use it
+  const qqbotCredentialsRef = React.useRef<{ appId: string; appSecret: string }>({ appId: '', appSecret: '' });
 
   // Collapse state - true means collapsed (closed), false means expanded (open)
   const [collapseKeys, setCollapseKeys] = useState<Record<string, boolean>>({
@@ -245,6 +248,8 @@ const ChannelModalContent: React.FC = () => {
         setLarkPluginStatus(status);
       } else if (status.type === 'dingtalk') {
         setDingtalkPluginStatus(status);
+      } else if (status.type === 'qqbot') {
+        setQqbotPluginStatus(status);
       } else if (!BUILTIN_CHANNEL_TYPES.has(status.type)) {
         setExtensionStatuses((prev) => ({
           ...prev,
@@ -392,7 +397,10 @@ const ChannelModalContent: React.FC = () => {
     setQqbotEnableLoading(true);
     try {
       if (enabled) {
-        if (!qqbotPluginStatus?.hasToken) {
+        // Check if we have credentials - either saved in database or entered in the form
+        const pendingCredentials = qqbotCredentialsRef.current;
+        const hasPendingCredentials = pendingCredentials.appId.trim() && pendingCredentials.appSecret.trim();
+        if (!qqbotPluginStatus?.hasToken && !hasPendingCredentials) {
           Message.warning(t('settings.qqbot.credentialsRequired', 'Please configure QQ Bot credentials first'));
           setQqbotEnableLoading(false);
           return;
@@ -400,7 +408,7 @@ const ChannelModalContent: React.FC = () => {
 
         const result = await channel.enablePlugin.invoke({
           pluginId: 'qqbot_default',
-          config: {},
+          config: hasPendingCredentials ? { appId: pendingCredentials.appId.trim(), appSecret: pendingCredentials.appSecret.trim() } : {},
         });
 
         if (result.success) {
@@ -621,7 +629,16 @@ const ChannelModalContent: React.FC = () => {
       disabled: qqbotEnableLoading,
       isConnected: qqbotPluginStatus?.connected || false,
       defaultModel: qqbotModelSelection.currentModel?.useModel,
-      content: <QQBotConfigForm pluginStatus={qqbotPluginStatus} modelSelection={qqbotModelSelection} onStatusChange={setQqbotPluginStatus} />,
+      content: (
+        <QQBotConfigForm
+          pluginStatus={qqbotPluginStatus}
+          modelSelection={qqbotModelSelection}
+          onStatusChange={setQqbotPluginStatus}
+          onCredentialsChange={(credentials) => {
+            qqbotCredentialsRef.current = credentials;
+          }}
+        />
+      ),
     };
 
     const extensionChannels: ChannelConfig[] = Object.values(extensionStatuses)

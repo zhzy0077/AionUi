@@ -181,14 +181,24 @@ export class ChannelManager {
       return;
     }
 
+    console.log('[ChannelManager] All plugins from DB:', JSON.stringify(result.data.map((p) => ({ id: p.id, type: p.type, enabled: p.enabled, status: p.status }))));
+
     const enabledPlugins = result.data.filter((p) => p.enabled);
-    const builtinStartableTypes = new Set<PluginType>(['telegram', 'lark', 'dingtalk']);
+    console.log(
+      '[ChannelManager] Enabled plugins:',
+      enabledPlugins.map((p) => ({ id: p.id, type: p.type }))
+    );
+
+    const builtinStartableTypes = new Set<PluginType>(['telegram', 'lark', 'dingtalk', 'qqbot']);
+    console.log('[ChannelManager] builtinStartableTypes:', Array.from(builtinStartableTypes));
     const extensionRegistry = ExtensionRegistry.getInstance();
 
     for (const plugin of enabledPlugins) {
       const isBuiltinStartable = builtinStartableTypes.has(plugin.type);
       const hasExtensionPlugin = !!extensionRegistry.getChannelPluginMeta(plugin.type);
       const canStartInCurrentRuntime = isBuiltinStartable || hasExtensionPlugin;
+
+      console.log(`[ChannelManager] Processing plugin ${plugin.id} (type=${plugin.type}): isBuiltinStartable=${isBuiltinStartable}, hasExtensionPlugin=${hasExtensionPlugin}, canStart=${canStartInCurrentRuntime}`);
 
       if (!canStartInCurrentRuntime) {
         console.warn(`[ChannelManager] Auto-disabling stale plugin ${plugin.id} (type=${plugin.type}) because it is not available in current runtime`);
@@ -203,7 +213,9 @@ export class ChannelManager {
       }
 
       try {
+        console.log(`[ChannelManager] Starting plugin ${plugin.id}...`);
         await this.startPlugin(plugin);
+        console.log(`[ChannelManager] Plugin ${plugin.id} started successfully`);
       } catch (error) {
         console.error(`[ChannelManager] Failed to start plugin ${plugin.id}:`, error);
         // Update status to error

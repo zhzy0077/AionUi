@@ -70,7 +70,7 @@ export enum QQBotOpcode {
 
 /**
  * QQ Bot intents (event subscriptions)
- * Using 0 (no special intents) for simplicity as per reference implementation
+ * See: https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/interface-framework/event-emit.html
  */
 export enum QQBotIntent {
   GUILDS = 1 << 0,
@@ -78,9 +78,33 @@ export enum QQBotIntent {
   GUILD_MESSAGES = 1 << 9,
   GUILD_MESSAGE_REACTIONS = 1 << 10,
   DIRECT_MESSAGE = 1 << 12,
-  C2C_MESSAGE = 1 << 25,
-  GROUP_MESSAGE = 1 << 26,
+  GROUP_AND_C2C = 1 << 25,
+  INTERACTION = 1 << 26,
+  MESSAGE_AUDIT = 1 << 27,
+  PUBLIC_GUILD_MESSAGES = 1 << 30,
 }
+
+/**
+ * Intent levels for progressive downgrade.
+ * On INVALID_SESSION with d=false, we try the next level down.
+ */
+export const QQBOT_INTENT_LEVELS = [
+  {
+    name: 'full',
+    intents: QQBotIntent.PUBLIC_GUILD_MESSAGES | QQBotIntent.DIRECT_MESSAGE | QQBotIntent.GROUP_AND_C2C,
+    description: 'group+c2c+channel',
+  },
+  {
+    name: 'group+channel',
+    intents: QQBotIntent.PUBLIC_GUILD_MESSAGES | QQBotIntent.GROUP_AND_C2C,
+    description: 'group+channel',
+  },
+  {
+    name: 'channel-only',
+    intents: QQBotIntent.PUBLIC_GUILD_MESSAGES | QQBotIntent.GUILD_MEMBERS,
+    description: 'channel-only',
+  },
+] as const;
 
 /**
  * QQ Bot event types

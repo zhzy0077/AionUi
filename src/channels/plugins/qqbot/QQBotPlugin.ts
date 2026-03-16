@@ -8,7 +8,7 @@ import WebSocket from 'ws';
 import https from 'https';
 import type { BotInfo, IChannelPluginConfig, IUnifiedOutgoingMessage, PluginType } from '../../types';
 import { BasePlugin } from '../BasePlugin';
-import { QQBOT_GATEWAY_URL, QQBOT_API_BASE, QQBOT_TOKEN_URL, QQBOT_MESSAGE_LIMIT, QQBotOpcode, QQBotMessageType, type QQBotGatewayPayload, type QQBotMessage, type QQBotApiResponse, encodeChatId, parseChatId, toUnifiedIncomingMessage, toQQBotSendParams, detectMessageType } from './QQBotAdapter';
+import { QQBOT_API_BASE, QQBOT_TOKEN_URL, QQBOT_INTENT_LEVELS, QQBotOpcode, QQBotMessageType, type QQBotGatewayPayload, type QQBotMessage, type QQBotApiResponse, encodeChatId, parseChatId, toUnifiedIncomingMessage, toQQBotSendParams, detectMessageType } from './QQBotAdapter';
 
 /**
  * QQBotPlugin - QQ Bot integration for Personal Assistant
@@ -41,6 +41,7 @@ export class QQBotPlugin extends BasePlugin {
   private ws: WebSocket | null = null;
   private isConnected = false;
   private isReconnecting = false;
+  private isResuming = false;
   private reconnectAttempts = 0;
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   private eventCleanupTimer: ReturnType<typeof setInterval> | null = null;
@@ -53,6 +54,9 @@ export class QQBotPlugin extends BasePlugin {
   private sessionId: string | null = null;
   private sequenceNumber: number | null = null;
   private heartbeatIntervalMs = HEARTBEAT_INTERVAL;
+
+  // Intent level for progressive downgrade
+  private intentLevelIndex = 0;
 
   // Token cache
   private tokenCache: ITokenCache | null = null;
@@ -82,14 +86,12 @@ export class QQBotPlugin extends BasePlugin {
 
   protected async onStart(): Promise<void> {
     try {
-      // Get access token first
       await this.refreshAccessToken();
 
-      // Connect to WebSocket
-      const wsUrl = QQBOT_GATEWAY_URL;
+      // Fetch gateway URL from API (not hardcoded)
+      const wsUrl = await this.fetchGatewayUrl();
       await this.connectWebSocket(wsUrl);
 
-      // Start event cleanup
       this.startEventCleanup();
 
       console.log(`[QQBotPlugin] Started for app ${this.appId}`);
@@ -105,6 +107,7 @@ export class QQBotPlugin extends BasePlugin {
     this.closeWebSocket(1000, 'Plugin stopped');
     this.isConnected = false;
     this.isReconnecting = false;
+    this.isResuming = false;
     this.reconnectAttempts = 0;
     this.sessionId = null;
     this.sequenceNumber = null;
@@ -118,15 +121,33 @@ export class QQBotPlugin extends BasePlugin {
   // ==================== WebSocket Connection ====================
 
   private async connectWebSocket(url: string): Promise<void> {
+    // Close any existing WebSocket to prevent orphaned handlers
+    this.closeWebSocket(1000, 'New connection');
+
     return new Promise((resolve, reject) => {
       try {
-        this.ws = new WebSocket(url);
+        const ws = new WebSocket(url);
+        this.ws = ws;
+        let settled = false;
 
-        this.ws.on('open', () => {
+        const cleanup = (): void => {
+          clearInterval(checkReady);
+          clearTimeout(timeout);
+        };
+
+        const settle = (fn: typeof resolve | ((reason?: unknown) => void), value?: unknown): void => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          (fn as (v?: unknown) => void)(value);
+        };
+
+        ws.on('open', () => {
           console.log('[QQBotPlugin] WebSocket connected');
         });
 
-        this.ws.on('message', (data: Buffer) => {
+        ws.on('message', (data: Buffer) => {
+          if (this.ws !== ws) return;
           try {
             const payload = JSON.parse(data.toString()) as QQBotGatewayPayload;
             void this.handlePayload(payload).catch((error) => {
@@ -137,35 +158,41 @@ export class QQBotPlugin extends BasePlugin {
           }
         });
 
-        this.ws.on('close', (code: number, reason: Buffer) => {
+        ws.on('close', (code: number, reason: Buffer) => {
+          if (this.ws !== ws) return;
           console.log(`[QQBotPlugin] WebSocket closed: ${code} ${reason.toString()}`);
           this.isConnected = false;
+          this.ws = null;
           this.stopHeartbeat();
 
-          // Attempt reconnection if not intentionally stopped
-          if (code !== 1000 && code !== 1001) {
+          // If connectWebSocket is still pending, reject its promise
+          const wasEstablished = settled;
+          settle(reject, new Error(`WebSocket closed: ${code} ${reason.toString()}`));
+
+          // Only auto-reconnect for established connections (not during initial connect)
+          if (wasEstablished && code !== 1000 && code !== 1001) {
             void this.attemptReconnect();
           }
         });
 
-        this.ws.on('error', (error: Error) => {
+        ws.on('error', (error: Error) => {
+          if (this.ws !== ws) return;
           console.error('[QQBotPlugin] WebSocket error:', error);
-          reject(error);
+          settle(reject, error);
         });
 
-        // Wait for READY event before resolving
+        // Wait for READY/RESUMED event before resolving
         const checkReady = setInterval(() => {
           if (this.isConnected) {
-            clearInterval(checkReady);
-            resolve();
+            settle(resolve);
           }
         }, 100);
 
         // Timeout after 30 seconds
-        setTimeout(() => {
-          clearInterval(checkReady);
+        const timeout = setTimeout(() => {
           if (!this.isConnected) {
-            reject(new Error('Connection timeout waiting for READY'));
+            this.closeWebSocket(1000, 'Connection timeout');
+            settle(reject, new Error('Connection timeout waiting for READY'));
           }
         }, 30000);
       } catch (error) {
@@ -210,7 +237,7 @@ export class QQBotPlugin extends BasePlugin {
       } else {
         // Full reconnect - get new token and connect
         await this.refreshAccessToken();
-        const wsUrl = QQBOT_GATEWAY_URL;
+        const wsUrl = await this.fetchGatewayUrl();
         await this.connectWebSocket(wsUrl);
       }
       this.isReconnecting = false;
@@ -222,22 +249,14 @@ export class QQBotPlugin extends BasePlugin {
   }
 
   private async resumeSession(): Promise<void> {
-    // Resume session using existing session_id and sequence_number
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      const wsUrl = QQBOT_GATEWAY_URL;
+    await this.refreshAccessToken();
+    this.isResuming = true;
+    try {
+      const wsUrl = await this.fetchGatewayUrl();
       await this.connectWebSocket(wsUrl);
+    } finally {
+      this.isResuming = false;
     }
-
-    const resumePayload: QQBotGatewayPayload = {
-      op: QQBotOpcode.RESUME,
-      d: {
-        token: `QQBot ${this.appId}.${this.tokenCache?.accessToken || ''}`,
-        session_id: this.sessionId,
-        seq: this.sequenceNumber,
-      },
-    };
-
-    this.sendPayload(resumePayload);
   }
 
   // ==================== Payload Handling ====================
@@ -255,14 +274,33 @@ export class QQBotPlugin extends BasePlugin {
         break;
       case QQBotOpcode.RECONNECT:
         console.log('[QQBotPlugin] Server requested reconnect');
-        void this.attemptReconnect();
+        try {
+          this.ws?.close(4007, 'Server requested reconnect');
+        } catch {
+          /* ignore */
+        }
         break;
-      case QQBotOpcode.INVALID_SESSION:
-        console.log('[QQBotPlugin] Invalid session, clearing session data');
-        this.sessionId = null;
-        this.sequenceNumber = null;
-        void this.attemptReconnect();
+      case QQBotOpcode.INVALID_SESSION: {
+        const canResume = payload.d as boolean;
+        console.log(`[QQBotPlugin] Invalid session, can resume: ${canResume}`);
+        if (!canResume) {
+          this.sessionId = null;
+          this.sequenceNumber = null;
+          this.isResuming = false;
+          // Try next intent level down
+          if (this.intentLevelIndex < QQBOT_INTENT_LEVELS.length - 1) {
+            this.intentLevelIndex++;
+            const next = QQBOT_INTENT_LEVELS[this.intentLevelIndex];
+            console.log(`[QQBotPlugin] Downgrading intents to: ${next.description}`);
+          }
+        }
+        try {
+          this.ws?.close(4009, 'Invalid session');
+        } catch {
+          /* ignore */
+        }
         break;
+      }
       default:
         console.log(`[QQBotPlugin] Unhandled opcode: ${payload.op}`);
     }
@@ -271,23 +309,31 @@ export class QQBotPlugin extends BasePlugin {
   private async handleHello(data: { heartbeat_interval: number }): Promise<void> {
     this.heartbeatIntervalMs = data.heartbeat_interval || HEARTBEAT_INTERVAL;
 
-    // Send IDENTIFY
-    const identifyPayload: QQBotGatewayPayload = {
-      op: QQBotOpcode.IDENTIFY,
-      d: {
-        token: `QQBot ${this.appId}.${this.tokenCache?.accessToken || ''}`,
-        // Using 0 for intents as per reference implementation
-        intents: 0,
-        shard: [0, 1],
-        properties: {
-          $os: process.platform,
-          $browser: 'aionui',
-          $device: 'aionui',
+    if (this.isResuming && this.sessionId) {
+      // Resume existing session
+      const resumePayload: QQBotGatewayPayload = {
+        op: QQBotOpcode.RESUME,
+        d: {
+          token: `QQBot ${this.tokenCache?.accessToken || ''}`,
+          session_id: this.sessionId,
+          seq: this.sequenceNumber,
         },
-      },
-    };
-
-    this.sendPayload(identifyPayload);
+      };
+      this.sendPayload(resumePayload);
+    } else {
+      // New connection - send IDENTIFY with current intent level
+      const intentLevel = QQBOT_INTENT_LEVELS[Math.min(this.intentLevelIndex, QQBOT_INTENT_LEVELS.length - 1)];
+      console.log(`[QQBotPlugin] Sending IDENTIFY with intents: ${intentLevel.intents} (${intentLevel.description})`);
+      const identifyPayload: QQBotGatewayPayload = {
+        op: QQBotOpcode.IDENTIFY,
+        d: {
+          token: `QQBot ${this.tokenCache?.accessToken || ''}`,
+          intents: intentLevel.intents,
+          shard: [0, 1],
+        },
+      };
+      this.sendPayload(identifyPayload);
+    }
   }
 
   private async handleDispatch(payload: QQBotGatewayPayload): Promise<void> {
@@ -456,6 +502,16 @@ export class QQBotPlugin extends BasePlugin {
     return this.tokenCache?.accessToken || '';
   }
 
+  private async fetchGatewayUrl(): Promise<string> {
+    const token = await this.ensureAccessToken();
+    const response = await this.apiRequest('GET', '/gateway', token);
+    const url = (response as { url?: string })?.url;
+    if (!url) {
+      throw new Error('Failed to get gateway URL from API');
+    }
+    return url;
+  }
+
   // ==================== Message Sending ====================
 
   async sendMessage(chatId: string, message: IUnifiedOutgoingMessage): Promise<string> {
@@ -561,7 +617,7 @@ export class QQBotPlugin extends BasePlugin {
     const url = `${baseUrl}${path}`;
 
     return this.httpRequest(method, url, body, {
-      Authorization: `QQBot ${this.appId}.${token}`,
+      Authorization: `QQBot ${token}`,
       'Content-Type': 'application/json',
     });
   }
@@ -665,7 +721,12 @@ export class QQBotPlugin extends BasePlugin {
           });
           res.on('end', () => {
             try {
-              resolve(JSON.parse(responseData));
+              const parsed = JSON.parse(responseData);
+              if (res.statusCode && res.statusCode >= 400) {
+                reject(new Error(parsed.message || parsed.error_description || `HTTP ${res.statusCode}`));
+              } else {
+                resolve(parsed);
+              }
             } catch {
               reject(new Error('Invalid response'));
             }

@@ -54,14 +54,20 @@ interface QQBotConfigFormProps {
   pluginStatus: IChannelPluginStatus | null;
   modelSelection: GeminiModelSelection;
   onStatusChange: (status: IChannelPluginStatus | null) => void;
+  onCredentialsChange?: (credentials: { appId: string; appSecret: string }) => void;
 }
 
-const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSelection, onStatusChange }) => {
+const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSelection, onStatusChange, onCredentialsChange }) => {
   const { t } = useTranslation();
 
   // QQ Bot credentials
   const [appId, setAppId] = useState('');
   const [appSecret, setAppSecret] = useState('');
+
+  // Notify parent when credentials change
+  useEffect(() => {
+    onCredentialsChange?.({ appId, appSecret });
+  }, [appId, appSecret, onCredentialsChange]);
 
   const [testLoading, setTestLoading] = useState(false);
   const [touched, setTouched] = useState({ appId: false, appSecret: false });
@@ -148,8 +154,38 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
     }
   };
 
+  // Auto-enable plugin after successful test
+  const handleAutoEnable = async () => {
+    try {
+      const result = await channel.enablePlugin.invoke({
+        pluginId: 'qqbot_default',
+        config: {
+          appId: appId.trim(),
+          appSecret: appSecret.trim(),
+        },
+      });
+
+      if (result.success) {
+        Message.success(t('settings.qqbot.pluginEnabled', 'QQ Bot enabled'));
+        const statusResult = await channel.getPluginStatus.invoke();
+        if (statusResult.success && statusResult.data) {
+          const qqbotPlugin = statusResult.data.find((p) => p.type === 'qqbot');
+          onStatusChange(qqbotPlugin || null);
+        }
+      } else {
+        console.error('[QQBotConfig] enablePlugin failed:', result.msg);
+        Message.error(result.msg || t('settings.qqbot.enableFailed', 'Failed to enable QQ Bot plugin'));
+      }
+    } catch (error: any) {
+      console.error('[QQBotConfig] Auto-enable failed:', error);
+      Message.error(error.message || t('settings.qqbot.enableFailed', 'Failed to enable QQ Bot plugin'));
+    }
+  };
+
   // Handle test connection
   const handleTest = async () => {
+    setTouched({ appId: true, appSecret: true });
+
     if (!appId.trim() || !appSecret.trim()) {
       Message.error(t('settings.qqbot.credentialsRequired', 'Please enter App ID and App Secret'));
       return;
@@ -157,17 +193,22 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
 
     setTestLoading(true);
     try {
-      const result = await channel.testPlugin.invoke({
+      const testResult = await channel.testPlugin.invoke({
         pluginId: 'qqbot_default',
         token: '',
         extraConfig: { appId: appId.trim(), appSecret: appSecret.trim() },
       });
-      if (result.success) {
+
+      const testData = testResult.data;
+      if (testData && testData.success === true) {
         Message.success(t('settings.qqbot.connectionSuccess', 'Connected to QQ Bot API!'));
+        await handleAutoEnable();
       } else {
-        Message.error(result.msg || t('settings.qqbot.connectionFailed', 'Connection failed'));
+        const errorMsg = testData?.error || t('settings.qqbot.connectionFailed', 'Connection failed');
+        Message.error(errorMsg);
       }
     } catch (error) {
+      console.error('[QQBotConfig] Test error:', error);
       Message.error(t('settings.qqbot.connectionFailed', 'Connection failed'));
     } finally {
       setTestLoading(false);
