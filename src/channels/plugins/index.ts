@@ -14,3 +14,7 @@ export * from './telegram/TelegramKeyboards';
 
 // DingTalk plugin
 export { DingTalkPlugin } from './dingtalk/DingTalkPlugin';
+
+// QQBot plugin
+export { QQBotPlugin } from './qqbot/QQBotPlugin';
+export { QQBOT_MESSAGE_LIMIT, QQBOT_GATEWAY_URL, QQBOT_SANDBOX_GATEWAY_URL, QQBOT_API_BASE, QQBOT_SANDBOX_API_BASE, QQBOT_TOKEN_URL, QQBotMessageType, type QQBotGatewayPayload, type QQBotMessage, type QQBotApiResponse, type QQBotChatType, type ParsedChatId, type QQBotSendParams, QQBotOpcode, QQBotIntent } from './qqbot/QQBotAdapter';

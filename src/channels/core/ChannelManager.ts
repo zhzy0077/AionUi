@@ -13,6 +13,7 @@ import { PluginManager, registerPlugin } from '../gateway/PluginManager';
 import { PairingService } from '../pairing/PairingService';
 import { DingTalkPlugin } from '../plugins/dingtalk/DingTalkPlugin';
 import { LarkPlugin } from '../plugins/lark/LarkPlugin';
+import { QQBotPlugin } from '../plugins/qqbot/QQBotPlugin';
 import { TelegramPlugin } from '../plugins/telegram/TelegramPlugin';
 import { isBuiltinChannelPlatform, resolveChannelConvType } from '../types';
 import type { ChannelPlatform, IChannelPluginConfig, PluginType } from '../types';
@@ -50,6 +51,7 @@ export class ChannelManager {
     registerPlugin('telegram', TelegramPlugin);
     registerPlugin('lark', LarkPlugin);
     registerPlugin('dingtalk', DingTalkPlugin);
+    registerPlugin('qqbot', QQBotPlugin);
   }
 
   /**
@@ -263,6 +265,12 @@ export class ChannelManager {
       if (clientId && clientSecret) {
         credentials = { clientId, clientSecret };
       }
+    } else if (pluginType === 'qqbot') {
+      const appId = config.appId as string | undefined;
+      const appSecret = config.appSecret as string | undefined;
+      if (appId && appSecret) {
+        credentials = { appId, appSecret };
+      }
     } else {
       // Extension or unknown plugin type:
       // - prefer manifest-declared credential/config fields
@@ -416,6 +424,20 @@ export class ChannelManager {
       };
     }
 
+    if (pluginType === 'qqbot') {
+      const appId = extraConfig?.appId;
+      const appSecret = extraConfig?.appSecret;
+      if (!appId || !appSecret) {
+        return { success: false, error: 'App ID and App Secret are required for QQ Bot' };
+      }
+      const result = await QQBotPlugin.testConnection(appId, appSecret);
+      return {
+        success: result.success,
+        botUsername: result.botInfo?.name,
+        error: result.error,
+      };
+    }
+
     // Extension plugins: test connection not supported yet (will be handled by the plugin itself on start)
     return { success: true, botUsername: undefined, error: undefined };
   }
@@ -430,6 +452,7 @@ export class ChannelManager {
     if (pluginId.startsWith('discord')) return 'discord';
     if (pluginId.startsWith('lark')) return 'lark';
     if (pluginId.startsWith('dingtalk')) return 'dingtalk';
+    if (pluginId.startsWith('qqbot')) return 'qqbot';
     // Extension plugins: use pluginId as type (e.g., 'ext-feishu')
     return pluginId;
   }
@@ -495,7 +518,7 @@ export class ChannelManager {
       // For gemini + model info: update existing conversations' model field
       if (newType === 'gemini' && model?.id && model?.useModel) {
         if (isBuiltinChannelPlatform(platform)) {
-          const builtinPlatform: 'telegram' | 'lark' | 'dingtalk' = platform;
+          const builtinPlatform: 'telegram' | 'lark' | 'dingtalk' | 'qqbot' = platform;
           const fullModel = await getChannelDefaultModel(builtinPlatform);
           const db = getDatabase();
           const result = db.updateChannelConversationModel(builtinPlatform, 'gemini', fullModel);
