@@ -241,26 +241,25 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
         <PreferenceRow label={t('settings.qqbot.appId', 'App ID')} required>
           <Input
             value={appId}
-            onChange={(v) => {
-              setAppId(v);
+            onChange={(value) => {
+              setAppId(value);
               setTouched((t) => ({ ...t, appId: true }));
             }}
             placeholder='Enter App ID'
-            className='w-280px'
+            style={{ width: 280 }}
             disabled={isConnected}
           />
         </PreferenceRow>
 
         <PreferenceRow label={t('settings.qqbot.appSecret', 'App Secret')} required>
-          <Input
+          <Input.Password
             value={appSecret}
-            onChange={(v) => {
-              setAppSecret(v);
+            onChange={(value) => {
+              setAppSecret(value);
               setTouched((t) => ({ ...t, appSecret: true }));
             }}
             placeholder='Enter App Secret'
-            type='password'
-            className='w-280px'
+            style={{ width: 280 }}
             disabled={isConnected}
           />
         </PreferenceRow>
