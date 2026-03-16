@@ -238,34 +238,32 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
       <div>
         {hasCredentials && <div className='text-12px text-t-secondary mb-12px'>{t('settings.qqbot.credentialsSaved', 'Credentials already configured. Enter new values to update.')}</div>}
 
-        <div className='bg-bg-tertiary rounded-8px px-16px'>
-          <PreferenceRow label={t('settings.qqbot.appId', 'App ID')} required>
-            <Input
-              value={appId}
-              onChange={(v) => {
-                setAppId(v);
-                setTouched((t) => ({ ...t, appId: true }));
-              }}
-              placeholder='Enter App ID'
-              className='w-280px'
-              disabled={isConnected}
-            />
-          </PreferenceRow>
+        <PreferenceRow label={t('settings.qqbot.appId', 'App ID')} required>
+          <Input
+            value={appId}
+            onChange={(v) => {
+              setAppId(v);
+              setTouched((t) => ({ ...t, appId: true }));
+            }}
+            placeholder='Enter App ID'
+            className='w-280px'
+            disabled={isConnected}
+          />
+        </PreferenceRow>
 
-          <PreferenceRow label={t('settings.qqbot.appSecret', 'App Secret')} required>
-            <Input
-              value={appSecret}
-              onChange={(v) => {
-                setAppSecret(v);
-                setTouched((t) => ({ ...t, appSecret: true }));
-              }}
-              placeholder='Enter App Secret'
-              type='password'
-              className='w-280px'
-              disabled={isConnected}
-            />
-          </PreferenceRow>
-        </div>
+        <PreferenceRow label={t('settings.qqbot.appSecret', 'App Secret')} required>
+          <Input
+            value={appSecret}
+            onChange={(v) => {
+              setAppSecret(v);
+              setTouched((t) => ({ ...t, appSecret: true }));
+            }}
+            placeholder='Enter App Secret'
+            type='password'
+            className='w-280px'
+            disabled={isConnected}
+          />
+        </PreferenceRow>
 
         {/* Test Connection Button */}
         <div className='mt-16px flex justify-end gap-12px'>
