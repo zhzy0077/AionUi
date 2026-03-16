@@ -596,8 +596,15 @@ const WebuiModalContent: React.FC = () => {
           </div>
 
           {/* 启用 WebUI / Enable WebUI */}
-          <PreferenceRow label={t('settings.webui.enable')} extra={startLoading ? <span className='text-12px text-warning'>{t('settings.webui.starting')}</span> : status?.running ? <span className='text-12px text-success'>✓ {t('settings.webui.running')}</span> : null}>
-            <Switch checked={webuiEnabled} loading={startLoading} onChange={handleToggle} />
+          <PreferenceRow
+            label={t('settings.webui.enable')}
+            extra={
+              isDesktop
+                ? (startLoading ? <span className='text-12px text-warning'>{t('settings.webui.starting')}</span> : status?.running ? <span className='text-12px text-success'>✓ {t('settings.webui.running')}</span> : null)
+                : <span className='text-12px text-success'>✓ {t('settings.webui.running')}</span>
+            }
+          >
+            <Switch checked={isDesktop ? webuiEnabled : true} disabled={!isDesktop} loading={isDesktop ? startLoading : false} onChange={isDesktop ? handleToggle : undefined} />
           </PreferenceRow>
 
           {/* 访问地址（仅运行时显示）/ Access URL (only when running) */}
@@ -629,7 +636,7 @@ const WebuiModalContent: React.FC = () => {
               </span>
             }
           >
-            <Switch checked={allowRemotePreference} onChange={handleAllowRemoteChange} />
+            <Switch checked={allowRemotePreference} onChange={handleAllowRemoteChange} disabled={!isDesktop} />
           </PreferenceRow>
         </div>
 
