@@ -179,6 +179,7 @@
   "builtin": "內建",
   "channels": "頻道",
   "webui.description": "把 AionUi 當作「7*24小時的遠程助手」，隨時隨地用遠程設備安排任務。",
+  "webui.descriptionWebuiContext": "管理您的 WebUI 伺服器設定、存取憑證和連線選項。",
   "webui.steps": "步驟 1. 開啟 WebUI 開關；步驟 2. 複製存取網址；步驟 3. 遠程瀏覽器開啟",
   "webui.configuration": "WebUI 配置",
   "webui.enable": "啟用 WebUI",
