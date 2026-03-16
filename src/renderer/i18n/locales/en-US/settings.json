@@ -622,8 +622,6 @@
     "waitingConnection": "Connection is being established. Please wait...",
     "agent": "Agent",
     "agentDesc": "Used for QQ Bot conversations",
-    "sandbox": "Sandbox Mode",
-    "sandboxDesc": "Use sandbox environment for testing"
   },
   "extensionAssistantReadonly": "Extension assistants are read-only. You can duplicate it and edit the copy."
 }

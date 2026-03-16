@@ -62,7 +62,6 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
   // QQ Bot credentials
   const [appId, setAppId] = useState('');
   const [appSecret, setAppSecret] = useState('');
-  const [sandbox, setSandbox] = useState(false);
 
   const [testLoading, setTestLoading] = useState(false);
   const [touched, setTouched] = useState({ appId: false, appSecret: false });
@@ -267,9 +266,6 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
             />
           </PreferenceRow>
 
-          <PreferenceRow label={t('settings.qqbot.sandbox', 'Sandbox Mode')} description={t('settings.qqbot.sandboxDesc', 'Use sandbox environment for testing')}>
-            <Switch checked={sandbox} onChange={setSandbox} disabled={isConnected} />
-          </PreferenceRow>
         </div>
 
         {/* Test Connection Button */}

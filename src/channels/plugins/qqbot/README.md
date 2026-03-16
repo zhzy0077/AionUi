@@ -19,10 +19,6 @@ QQ Bot channel plugin for AionUi personal assistant.
 - **App ID**: Your QQ Bot App ID (from QQ Open Platform)
 - **App Secret**: Your QQ Bot App Secret
 
-### Optional Settings
-
-- **Sandbox Mode**: Enable to use the sandbox environment for testing
-
 ## Setup
 
 1. Go to [QQ Open Platform](https://q.qq.com) and create a bot

@@ -8,7 +8,7 @@ import WebSocket from 'ws';
 import https from 'https';
 import type { BotInfo, IChannelPluginConfig, IUnifiedOutgoingMessage, PluginType } from '../../types';
 import { BasePlugin } from '../BasePlugin';
-import { QQBOT_GATEWAY_URL, QQBOT_SANDBOX_GATEWAY_URL, QQBOT_API_BASE, QQBOT_SANDBOX_API_BASE, QQBOT_TOKEN_URL, QQBOT_MESSAGE_LIMIT, QQBotOpcode, QQBotMessageType, type QQBotGatewayPayload, type QQBotMessage, type QQBotApiResponse, encodeChatId, parseChatId, toUnifiedIncomingMessage, toQQBotSendParams, detectMessageType } from './QQBotAdapter';
+import { QQBOT_GATEWAY_URL, QQBOT_API_BASE, QQBOT_TOKEN_URL, QQBOT_MESSAGE_LIMIT, QQBotOpcode, QQBotMessageType, type QQBotGatewayPayload, type QQBotMessage, type QQBotApiResponse, encodeChatId, parseChatId, toUnifiedIncomingMessage, toQQBotSendParams, detectMessageType } from './QQBotAdapter';
 
 /**
  * QQBotPlugin - QQ Bot integration for Personal Assistant
@@ -48,7 +48,6 @@ export class QQBotPlugin extends BasePlugin {
   // Credentials
   private appId = '';
   private appSecret = '';
-  private sandbox = false;
 
   // Session info
   private sessionId: string | null = null;
@@ -79,7 +78,6 @@ export class QQBotPlugin extends BasePlugin {
 
     this.appId = appId;
     this.appSecret = appSecret;
-    this.sandbox = config.config?.sandbox === true;
   }
 
   protected async onStart(): Promise<void> {
@@ -88,7 +86,7 @@ export class QQBotPlugin extends BasePlugin {
       await this.refreshAccessToken();
 
       // Connect to WebSocket
-      const wsUrl = this.sandbox ? QQBOT_SANDBOX_GATEWAY_URL : QQBOT_GATEWAY_URL;
+      const wsUrl = QQBOT_GATEWAY_URL;
       await this.connectWebSocket(wsUrl);
 
       // Start event cleanup
@@ -212,7 +210,7 @@ export class QQBotPlugin extends BasePlugin {
       } else {
         // Full reconnect - get new token and connect
         await this.refreshAccessToken();
-        const wsUrl = this.sandbox ? QQBOT_SANDBOX_GATEWAY_URL : QQBOT_GATEWAY_URL;
+        const wsUrl = QQBOT_GATEWAY_URL;
         await this.connectWebSocket(wsUrl);
       }
       this.isReconnecting = false;
@@ -226,7 +224,7 @@ export class QQBotPlugin extends BasePlugin {
   private async resumeSession(): Promise<void> {
     // Resume session using existing session_id and sequence_number
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      const wsUrl = this.sandbox ? QQBOT_SANDBOX_GATEWAY_URL : QQBOT_GATEWAY_URL;
+      const wsUrl = QQBOT_GATEWAY_URL;
       await this.connectWebSocket(wsUrl);
     }
 
@@ -502,7 +500,7 @@ export class QQBotPlugin extends BasePlugin {
   }
 
   private async sendC2CMessage(openid: string, contentType: string, content: Record<string, unknown>): Promise<QQBotApiResponse> {
-    const baseUrl = this.sandbox ? QQBOT_SANDBOX_API_BASE : QQBOT_API_BASE;
+    const baseUrl = QQBOT_API_BASE;
     const token = await this.ensureAccessToken();
 
     const body: Record<string, unknown> = {
@@ -514,7 +512,7 @@ export class QQBotPlugin extends BasePlugin {
   }
 
   private async sendGroupMessage(groupOpenid: string, contentType: string, content: Record<string, unknown>): Promise<QQBotApiResponse> {
-    const baseUrl = this.sandbox ? QQBOT_SANDBOX_API_BASE : QQBOT_API_BASE;
+    const baseUrl = QQBOT_API_BASE;
     const token = await this.ensureAccessToken();
 
     const body: Record<string, unknown> = {
@@ -526,7 +524,7 @@ export class QQBotPlugin extends BasePlugin {
   }
 
   private async sendGuildMessage(channelId: string, contentType: string, content: Record<string, unknown>): Promise<QQBotApiResponse> {
-    const baseUrl = this.sandbox ? QQBOT_SANDBOX_API_BASE : QQBOT_API_BASE;
+    const baseUrl = QQBOT_API_BASE;
     const token = await this.ensureAccessToken();
 
     const body: Record<string, unknown> = {
@@ -559,7 +557,7 @@ export class QQBotPlugin extends BasePlugin {
   // ==================== HTTP Helpers ====================
 
   private async apiRequest(method: string, path: string, token: string, body?: Record<string, unknown>): Promise<QQBotApiResponse> {
-    const baseUrl = this.sandbox ? QQBOT_SANDBOX_API_BASE : QQBOT_API_BASE;
+    const baseUrl = QQBOT_API_BASE;
     const url = `${baseUrl}${path}`;
 
     return this.httpRequest(method, url, body, {

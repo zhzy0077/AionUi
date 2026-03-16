@@ -15,11 +15,9 @@ export const QQBOT_MESSAGE_LIMIT = 4000;
 
 // QQ Bot API Gateway URL
 export const QQBOT_GATEWAY_URL = 'wss://api.sgroup.qq.com/websocket';
-export const QQBOT_SANDBOX_GATEWAY_URL = 'wss://sandbox.api.sgroup.qq.com/websocket';
 
 // QQ Bot API base URLs
 export const QQBOT_API_BASE = 'https://api.sgroup.qq.com';
-export const QQBOT_SANDBOX_API_BASE = 'https://sandbox.api.sgroup.qq.com';
 export const QQBOT_TOKEN_URL = 'https://bots.qq.com/app/getAppAccessToken';
 
 // ==================== Message Types ====================
