@@ -4,6 +4,37 @@ import UnoCSS from 'unocss/vite';
 import unoConfig from './uno.config.ts';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 
+/**
+ * Terminal cleanup plugin - ensures terminal is restored to normal mode on exit.
+ * Vite's dev server creates a readline interface for CLI shortcuts which can leave
+ * the terminal in raw mode if not properly cleaned up on exit.
+ */
+function terminalCleanupPlugin() {
+  return {
+    name: 'terminal-cleanup',
+    configureServer() {
+      const cleanup = () => {
+        if (process.stdin.isTTY && process.stdin.setRawMode) {
+          process.stdin.setRawMode(false);
+        }
+        if (process.stdin.pause) {
+          process.stdin.pause();
+        }
+      };
+
+      process.on('SIGINT', cleanup);
+      process.on('SIGTERM', cleanup);
+      process.on('exit', cleanup);
+
+      return () => {
+        process.off('SIGINT', cleanup);
+        process.off('SIGTERM', cleanup);
+        process.off('exit', cleanup);
+      };
+    },
+  };
+}
+
 // Icon Park transform plugin (replaces webpack icon-park-loader)
 function iconParkPlugin() {
   return {
@@ -125,7 +156,7 @@ export default defineConfig(({ mode }) => {
         extensions: ['.ts', '.tsx', '.js', '.jsx', '.css'],
         dedupe: ['react', 'react-dom', 'react-router-dom'],
       },
-      plugins: [UnoCSS(unoConfig), iconParkPlugin()],
+      plugins: [terminalCleanupPlugin(), UnoCSS(unoConfig), iconParkPlugin()],
       build: {
         target: 'es2022',
         sourcemap: isDevelopment,
