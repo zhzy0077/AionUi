@@ -7,6 +7,7 @@
 import ChannelDingTalkLogo from '@/renderer/assets/channel-logos/dingtalk.svg';
 import ChannelDiscordLogo from '@/renderer/assets/channel-logos/discord.svg';
 import ChannelLarkLogo from '@/renderer/assets/channel-logos/lark.svg';
+import ChannelQQBotLogo from '@/renderer/assets/channel-logos/qqbot.svg';
 import ChannelSlackLogo from '@/renderer/assets/channel-logos/slack.svg';
 import ChannelTelegramLogo from '@/renderer/assets/channel-logos/telegram.svg';
 import { resolveExtensionAssetUrl } from '@/renderer/utils/platform';
@@ -26,6 +27,7 @@ const ChannelHeader: React.FC<ChannelHeaderProps> = ({ channel, onToggleEnabled 
     telegram: { src: ChannelTelegramLogo, alt: 'Telegram' },
     lark: { src: ChannelLarkLogo, alt: 'Lark' },
     dingtalk: { src: ChannelDingTalkLogo, alt: 'DingTalk' },
+    qqbot: { src: ChannelQQBotLogo, alt: 'QQ Bot' },
     slack: { src: ChannelSlackLogo, alt: 'Slack' },
     discord: { src: ChannelDiscordLogo, alt: 'Discord' },
   };
