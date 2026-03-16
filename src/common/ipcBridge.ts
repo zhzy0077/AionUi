@@ -24,7 +24,7 @@ export const shell = {
 //通用会话能力
 export const conversation = {
   create: bridge.buildProvider<TChatConversation, ICreateConversationParams>('create-conversation'), // 创建对话
-  createWithConversation: bridge.buildProvider<TChatConversation, { conversation: TChatConversation; sourceConversationId?: string }>('create-conversation-with-conversation'), // Create new conversation from history (supports migration) / 通过历史会话创建新对话（支持迁移）
+  createWithConversation: bridge.buildProvider<TChatConversation, { conversation: TChatConversation; sourceConversationId?: string; migrateCron?: boolean }>('create-conversation-with-conversation'), // Create new conversation from history (supports migration) / 通过历史会话创建新对话（支持迁移）
   get: bridge.buildProvider<TChatConversation, { id: string }>('get-conversation'), // 获取对话信息
   getAssociateConversation: bridge.buildProvider<TChatConversation[], { conversation_id: string }>('get-associated-conversation'), // 获取关联对话
   remove: bridge.buildProvider<boolean, { id: string }>('remove-conversation'), // 删除对话
@@ -386,9 +386,32 @@ export const windowControls = {
 export const systemSettings = {
   getCloseToTray: bridge.buildProvider<boolean, void>('system-settings:get-close-to-tray'),
   setCloseToTray: bridge.buildProvider<void, { enabled: boolean }>('system-settings:set-close-to-tray'),
+  getNotificationEnabled: bridge.buildProvider<boolean, void>('system-settings:get-notification-enabled'),
+  setNotificationEnabled: bridge.buildProvider<void, { enabled: boolean }>('system-settings:set-notification-enabled'),
+  getCronNotificationEnabled: bridge.buildProvider<boolean, void>('system-settings:get-cron-notification-enabled'),
+  setCronNotificationEnabled: bridge.buildProvider<void, { enabled: boolean }>('system-settings:set-cron-notification-enabled'),
   changeLanguage: bridge.buildProvider<void, { language: string }>('system-settings:change-language'),
   // Broadcast language change to all renderers (desktop + WebUI) for real-time sync
   languageChanged: bridge.buildEmitter<{ language: string }>('system-settings:language-changed'),
+};
+
+// 系统通知接口 / System notification API
+export type INotificationOptions = {
+  title: string;
+  body: string;
+  icon?: string;
+  conversationId?: string;
+};
+
+export const notification = {
+  show: bridge.buildProvider<void, INotificationOptions>('notification.show'),
+  clicked: bridge.buildEmitter<{ conversationId?: string }>('notification.clicked'),
+};
+
+// 任务管理接口 / Task management API
+export const task = {
+  stopAll: bridge.buildProvider<{ success: boolean; count: number }, void>('task.stop-all'),
+  getRunningCount: bridge.buildProvider<{ success: boolean; count: number }, void>('task.get-running-count'),
 };
 
 // WebUI 服务管理接口 / WebUI service management API
@@ -412,6 +435,7 @@ export const webui = {
   stop: bridge.buildProvider<IBridgeResponse, void>('webui.stop'),
   // 修改密码（不需要当前密码）/ Change password (no current password required)
   changePassword: bridge.buildProvider<IBridgeResponse, { newPassword: string }>('webui.change-password'),
+  changeUsername: bridge.buildProvider<IBridgeResponse<{ username: string }>, { newUsername: string }>('webui.change-username'),
   // 重置密码（生成新随机密码）/ Reset password (generate new random password)
   resetPassword: bridge.buildProvider<IBridgeResponse<{ newPassword: string }>, void>('webui.reset-password'),
   // 生成二维码登录 token / Generate QR login token
