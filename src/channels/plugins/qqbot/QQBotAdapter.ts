@@ -254,17 +254,83 @@ export function detectMessageType(eventType: string): QQBotChatType {
 }
 
 /**
- * Extract message content from QQ Bot message
+ * Media tag patterns for extracting media from message text
  */
-function extractMessageContent(message: QQBotMessage): IUnifiedMessageContent {
+const MEDIA_TAG_PATTERNS = {
+  image: /<qqimg>([^<]+)<\/qqimg>/gi,
+  voice: /<qqvoice>([^<]+)<\/qqvoice>/gi,
+  video: /<qqvideo>([^<]+)<\/qqvideo>/gi,
+  file: /<qqfile>([^<]+)<\/qqfile>/gi,
+};
+
+/**
+ * Extract message content from QQ Bot message with enhanced media support
+ */
+export function extractMessageContent(message: QQBotMessage): IUnifiedMessageContent {
   const msgType = message.msg_type ?? QQBotMessageType.TEXT;
+  let text = message.content || '';
+
+  // Remove @bot mentions in group chats (pattern: <@!user_id>)
+  text = text.replace(/<@!\d+>\s*/g, '').trim();
+
+  // Check for media tags in text content
+  const attachments: IUnifiedMessageContent['attachments'] = [];
+
+  // Extract image tags
+  let match;
+  while ((match = MEDIA_TAG_PATTERNS.image.exec(text)) !== null) {
+    attachments.push({
+      type: 'photo',
+      fileId: match[1].trim(),
+      fileName: undefined,
+      mimeType: 'image/*',
+    });
+  }
+
+  // Extract voice tags
+  while ((match = MEDIA_TAG_PATTERNS.voice.exec(text)) !== null) {
+    attachments.push({
+      type: 'voice',
+      fileId: match[1].trim(),
+      fileName: undefined,
+      mimeType: 'audio/*',
+    });
+  }
+
+  // Extract video tags
+  while ((match = MEDIA_TAG_PATTERNS.video.exec(text)) !== null) {
+    attachments.push({
+      type: 'video',
+      fileId: match[1].trim(),
+      fileName: undefined,
+      mimeType: 'video/*',
+    });
+  }
+
+  // Extract file tags
+  while ((match = MEDIA_TAG_PATTERNS.file.exec(text)) !== null) {
+    attachments.push({
+      type: 'document',
+      fileId: match[1].trim(),
+      fileName: undefined,
+      mimeType: 'application/octet-stream',
+    });
+  }
+
+  // Remove media tags from text
+  text = text.replace(MEDIA_TAG_PATTERNS.image, '').replace(MEDIA_TAG_PATTERNS.voice, '').replace(MEDIA_TAG_PATTERNS.video, '').replace(MEDIA_TAG_PATTERNS.file, '').trim();
 
   switch (msgType) {
     case QQBotMessageType.TEXT:
     case QQBotMessageType.MARKDOWN: {
-      let text = message.content || '';
-      // Remove @bot mentions in group chats (pattern: <@!user_id>)
-      text = text.replace(/<@!\d+>\s*/g, '').trim();
+      // If we found media in tags, use media type
+      if (attachments.length > 0) {
+        return {
+          type: attachments[0].type === 'photo' ? 'photo' : attachments[0].type === 'voice' ? 'voice' : attachments[0].type === 'video' ? 'video' : 'document',
+          text,
+          attachments,
+        };
+      }
       return { type: 'text', text };
     }
 
@@ -276,7 +342,7 @@ function extractMessageContent(message: QQBotMessage): IUnifiedMessageContent {
         if (contentType.startsWith('image/')) {
           return {
             type: 'photo',
-            text: message.content || '',
+            text,
             attachments: [
               {
                 type: 'photo',
@@ -292,7 +358,7 @@ function extractMessageContent(message: QQBotMessage): IUnifiedMessageContent {
         if (contentType.startsWith('video/')) {
           return {
             type: 'video',
-            text: message.content || '',
+            text,
             attachments: [
               {
                 type: 'video',
@@ -308,7 +374,7 @@ function extractMessageContent(message: QQBotMessage): IUnifiedMessageContent {
         if (contentType.startsWith('audio/')) {
           return {
             type: 'audio',
-            text: message.content || '',
+            text,
             attachments: [
               {
                 type: 'audio',
@@ -324,7 +390,7 @@ function extractMessageContent(message: QQBotMessage): IUnifiedMessageContent {
         // Default to document for other types
         return {
           type: 'document',
-          text: message.content || '',
+          text,
           attachments: [
             {
               type: 'document',
@@ -388,17 +454,99 @@ export function toUnifiedIncomingMessage(message: QQBotMessage, eventType: strin
 
 export type QQBotContentType = 'text' | 'markdown' | 'embed' | 'ark' | 'media' | 'input_notify';
 
-export interface QQBotSendParams {
-  contentType: QQBotContentType;
-  content: Record<string, unknown>;
-  rawText?: string;
+/**
+ * Media item for queue processing
+ */
+export interface QQBotMediaItem {
+  type: 'image' | 'voice' | 'video' | 'file';
+  source: string;
+  sourceType: 'url' | 'local_path' | 'base64';
+  fileName?: string;
+  text?: string; // Caption or TTS text
 }
 
 /**
- * Convert unified outgoing message to QQ Bot send parameters
+ * Queue item for sending messages with media
  */
-export function toQQBotSendParams(message: IUnifiedOutgoingMessage): QQBotSendParams {
-  const text = message.text || '';
+export interface QQBotSendQueueItem {
+  contentType: QQBotContentType;
+  content: Record<string, unknown>;
+  rawText?: string;
+  text?: string; // Text content (for captions)
+  mediaItems?: QQBotMediaItem[];
+}
+
+/**
+ * Convert unified outgoing message to QQ Bot send parameters with media tag parsing
+ */
+export function toQQBotSendParams(message: IUnifiedOutgoingMessage): QQBotSendQueueItem {
+  let text = message.text || '';
+
+  // Parse media tags from text
+  const mediaItems: QQBotMediaItem[] = [];
+
+  // Extract image tags
+  let match;
+  while ((match = /<qqimg>([^<]+)<\/qqimg>/gi.exec(text)) !== null) {
+    const source = match[1].trim();
+    mediaItems.push({
+      type: 'image',
+      source: isUrl(source) ? source : source,
+      sourceType: isUrl(source) ? 'url' : 'local_path',
+    });
+  }
+
+  // Extract voice tags
+  while ((match = /<qqvoice>([^<]+)<\/qqvoice>/gi.exec(text)) !== null) {
+    const source = match[1].trim();
+    mediaItems.push({
+      type: 'voice',
+      source: isUrl(source) ? source : source,
+      sourceType: isUrl(source) ? 'url' : 'local_path',
+    });
+  }
+
+  // Extract video tags
+  while ((match = /<qqvideo>([^<]+)<\/qqvideo>/gi.exec(text)) !== null) {
+    const source = match[1].trim();
+    mediaItems.push({
+      type: 'video',
+      source: isUrl(source) ? source : source,
+      sourceType: isUrl(source) ? 'url' : 'local_path',
+    });
+  }
+
+  // Extract file tags
+  while ((match = /<qqfile>([^<]+)<\/qqfile>/gi.exec(text)) !== null) {
+    const source = match[1].trim();
+    // Try to extract filename from path
+    const fileName = source.split('/').pop() || source.split('\\').pop();
+    mediaItems.push({
+      type: 'file',
+      source: isUrl(source) ? source : source,
+      sourceType: isUrl(source) ? 'url' : 'local_path',
+      fileName,
+    });
+  }
+
+  // Remove media tags from text
+  text = text
+    .replace(/<qqimg>[^<]+<\/qqimg>/gi, '')
+    .replace(/<qqvoice>[^<]+<\/qqvoice>/gi, '')
+    .replace(/<qqvideo>[^<]+<\/qqvideo>/gi, '')
+    .replace(/<qqfile>[^<]+<\/qqfile>/gi, '')
+    .trim();
+
+  // If has media items, return queue item with media
+  if (mediaItems.length > 0) {
+    return {
+      contentType: 'media',
+      content: {},
+      rawText: text,
+      text,
+      mediaItems,
+    };
+  }
 
   // If has buttons, convert to markdown with button hints
   if (message.buttons && message.buttons.length > 0) {
@@ -423,9 +571,16 @@ export function toQQBotSendParams(message: IUnifiedOutgoingMessage): QQBotSendPa
 }
 
 /**
+ * Check if string is a URL
+ */
+function isUrl(str: string): boolean {
+  return str.startsWith('http://') || str.startsWith('https://') || str.startsWith('file://');
+}
+
+/**
  * Create input notify (typing indicator) parameters
  */
-export function createInputNotifyParams(): QQBotSendParams {
+export function createInputNotifyParams(): QQBotSendQueueItem {
   return {
     contentType: 'input_notify',
     content: { event_id: '1' },
@@ -517,3 +672,11 @@ export function extractAction(data: Record<string, unknown>): IMessageAction | n
     params: actionParams,
   };
 }
+
+// ==================== Backward Compatibility ====================
+
+/**
+ * @deprecated Use QQBotSendQueueItem instead
+ * Backward-compatible type alias
+ */
+export type QQBotSendParams = QQBotSendQueueItem;
