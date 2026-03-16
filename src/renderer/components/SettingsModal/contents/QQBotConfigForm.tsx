@@ -158,11 +158,15 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
 
     setTestLoading(true);
     try {
-      const result = await channel.testPlugin.invoke('qqbot', '', { appId: appId.trim(), appSecret: appSecret.trim() });
+      const result = await channel.testPlugin.invoke({
+        pluginId: 'qqbot_default',
+        token: '',
+        extraConfig: { appId: appId.trim(), appSecret: appSecret.trim() },
+      });
       if (result.success) {
         Message.success(t('settings.qqbot.connectionSuccess', 'Connected to QQ Bot API!'));
       } else {
-        Message.error(result.error || t('settings.qqbot.connectionFailed', 'Connection failed'));
+        Message.error(result.msg || t('settings.qqbot.connectionFailed', 'Connection failed'));
       }
     } catch (error) {
       Message.error(t('settings.qqbot.connectionFailed', 'Connection failed'));
@@ -174,13 +178,13 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
   // Handle approve pairing
   const handleApprovePairing = async (code: string) => {
     try {
-      const result = await channel.approvePairing.invoke(code);
+      const result = await channel.approvePairing.invoke({ code });
       if (result.success) {
         Message.success(t('settings.assistant.pairingApproved', 'Pairing approved'));
         void loadPendingPairings();
         void loadAuthorizedUsers();
       } else {
-        Message.error(result.error || t('settings.assistant.approveFailed', 'Failed to approve pairing'));
+        Message.error(result.msg || t('settings.assistant.approveFailed', 'Failed to approve pairing'));
       }
     } catch (error) {
       Message.error(t('settings.assistant.approveFailed', 'Failed to approve pairing'));
@@ -190,12 +194,12 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
   // Handle reject pairing
   const handleRejectPairing = async (code: string) => {
     try {
-      const result = await channel.rejectPairing.invoke(code);
+      const result = await channel.rejectPairing.invoke({ code });
       if (result.success) {
         Message.success(t('settings.assistant.pairingRejected', 'Pairing rejected'));
         void loadPendingPairings();
       } else {
-        Message.error(result.error || t('settings.assistant.rejectFailed', 'Failed to reject pairing'));
+        Message.error(result.msg || t('settings.assistant.rejectFailed', 'Failed to reject pairing'));
       }
     } catch (error) {
       Message.error(t('settings.assistant.rejectFailed', 'Failed to reject pairing'));
@@ -205,12 +209,12 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
   // Handle revoke user
   const handleRevokeUser = async (userId: string) => {
     try {
-      const result = await channel.revokeUser.invoke(userId);
+      const result = await channel.revokeUser.invoke({ userId });
       if (result.success) {
         Message.success(t('settings.assistant.userRevoked', 'User access revoked'));
         void loadAuthorizedUsers();
       } else {
-        Message.error(result.error || t('settings.assistant.revokeFailed', 'Failed to revoke user'));
+        Message.error(result.msg || t('settings.assistant.revokeFailed', 'Failed to revoke user'));
       }
     } catch (error) {
       Message.error(t('settings.assistant.revokeFailed', 'Failed to revoke user'));
@@ -280,7 +284,7 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
       <div>
         <SectionHeader title={t('settings.assistant.defaultModel', 'Default Model')} />
         <div className='bg-bg-tertiary rounded-8px px-16px py-12px'>
-          <GeminiModelSelector selection={modelSelection} onSelect={modelSelection.onSelectModel} description={t('settings.qqbot.defaultModelDesc', 'Model used for QQ Bot conversations')} />
+          <GeminiModelSelector selection={modelSelection} variant='settings' label={t('settings.qqbot.defaultModelDesc', 'Model used for QQ Bot conversations')} />
         </div>
       </div>
 
