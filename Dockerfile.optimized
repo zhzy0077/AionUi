@@ -1,0 +1,107 @@
+# AionUi WebUI - Optimized Docker Image
+# Multi-stage build with pre-installed AI Agents
+
+# Stage 1: Builder
+FROM ubuntu:22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Node.js
+RUN apt-get update && apt-get install -y curl ca-certificates \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure npm
+ENV NPM_CONFIG_PREFIX=/usr/local
+ENV PATH=$NPM_CONFIG_PREFIX/bin:$PATH
+
+# Install CLI tools in builder stage
+RUN npm install -g \
+    @anthropic-ai/claude-code \
+    opencode \
+    2>&1 | tee /tmp/npm-install.log
+
+# Stage 2: Runtime
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+ENV NPM_CONFIG_PREFIX=/usr/local
+ENV PATH=$NPM_CONFIG_PREFIX/bin:$PATH
+ENV AIONUI_PORT=25808
+ENV AIONUI_ALLOW_REMOTE=1
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    # Core Electron/Chromium dependencies
+    xvfb \
+    libxkbcommon-x11-0 \
+    libxcomposite1 \
+    libxcursor1 \
+    libxdamage1 \
+    libxrandr2 \
+    libxi6 \
+    libxtst6 \
+    # Audio
+    libasound2 \
+    # Graphics
+    libgbm1 \
+    libdrm2 \
+    libegl1 \
+    libgl1-mesa-glx \
+    # Network/Security
+    libnss3 \
+    libxss1 \
+    # GTK
+    libgtk-3-0 \
+    # Utilities
+    curl \
+    wget \
+    ca-certificates \
+    git \
+    # Node.js runtime (not npm)
+    nodejs \
+    # GitHub CLI for Copilot
+    gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Node.js and npm from builder
+COPY --from=builder /usr/bin/node /usr/bin/node
+COPY --from=builder /usr/bin/npm /usr/bin/npm
+COPY --from=builder /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Install AionUi
+ARG AIONUI_VERSION=latest
+RUN if [ "$AIONUI_VERSION" = "latest" ]; then \
+        wget -q --show-progress \
+            https://github.com/iOfficeAI/AionUi/releases/latest/download/AionUi-linux-amd64.deb \
+            -O /tmp/AionUi.deb; \
+    else \
+        wget -q --show-progress \
+            https://github.com/iOfficeAI/AionUi/releases/download/v${AIONUI_VERSION}/AionUi-linux-amd64.deb \
+            -O /tmp/AionUi.deb; \
+    fi \
+    && dpkg -i /tmp/AionUi.deb 2>/dev/null || apt-get install -f -y \
+    && rm /tmp/AionUi.deb
+
+# Install additional CLI tools via npm (if not in builder)
+RUN npm install -g @moonshot-ai/kimi-cli 2>/dev/null || true
+
+# Create workspace
+RUN mkdir -p /workspace /config && chmod 777 /workspace /config
+
+# Copy startup script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+WORKDIR /workspace
+
+# Create volume for persistent data
+VOLUME ["/config"]
+
+EXPOSE 25808
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["--webui", "--remote", "--no-sandbox"]

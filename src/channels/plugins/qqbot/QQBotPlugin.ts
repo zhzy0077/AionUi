@@ -8,7 +8,7 @@ import WebSocket from 'ws';
 import type { BotInfo, IChannelPluginConfig, IUnifiedOutgoingMessage, PluginType } from '../../types';
 import { BasePlugin } from '../BasePlugin';
 import { QQBOT_API_BASE, QQBOT_TOKEN_URL, QQBOT_INTENT_LEVELS, QQBotOpcode, QQBotMessageType, type QQBotGatewayPayload, type QQBotMessage, type QQBotApiResponse, encodeChatId, parseChatId, toUnifiedIncomingMessage, toQQBotSendParams, detectMessageType, extractMessageContent, type QQBotSendQueueItem } from './QQBotAdapter';
-import { getAccessToken, clearTokenCache, getGatewayUrl, sendC2CMessage, sendGroupMessage, sendChannelMessage, sendC2CImageMessage, sendGroupImageMessage, sendC2CVoiceMessage, sendGroupVoiceMessage, sendC2CFileMessage, sendGroupFileMessage, sendC2CVideoMessage, sendGroupVideoMessage, uploadC2CMedia, uploadGroupMedia, MediaFileType, type OutboundMeta, onMessageSent, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh } from './api';
+import { getAccessToken, clearTokenCache, getGatewayUrl, sendC2CMessage, sendGroupMessage, sendChannelMessage, sendC2CImageMessage, sendGroupImageMessage, sendC2CFileMessage, sendGroupFileMessage, uploadC2CMedia, uploadGroupMedia, MediaFileType, type OutboundMeta, onMessageSent, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh } from './api';
 import { loadSession, saveSession, clearSession, type SessionState } from './session-store';
 import { setRefIndex, type RefIndexEntry } from './ref-index-store';
 import { resolveQQBotAccount, resolveDefaultQQBotAccountId, DEFAULT_ACCOUNT_ID } from './config';

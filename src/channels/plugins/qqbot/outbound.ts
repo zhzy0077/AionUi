@@ -6,8 +6,8 @@
 
 import * as path from 'node:path';
 import type { ResolvedQQBotAccount } from './types';
-import { getAccessToken, sendC2CMessage, sendChannelMessage, sendGroupMessage, sendProactiveC2CMessage, sendProactiveGroupMessage, sendC2CImageMessage, sendGroupImageMessage, sendC2CVoiceMessage, sendGroupVoiceMessage, sendC2CVideoMessage, sendGroupVideoMessage, sendC2CFileMessage, sendGroupFileMessage } from './api';
-import { isAudioFile, audioFileToSilkBase64, waitForFile } from './utils/audio-convert';
+import { getAccessToken, sendC2CMessage, sendChannelMessage, sendGroupMessage, sendProactiveC2CMessage, sendProactiveGroupMessage, sendC2CImageMessage, sendGroupImageMessage, sendC2CFileMessage, sendGroupFileMessage } from './api';
+
 import { normalizeMediaTags } from './utils/media-tags';
 import { checkFileSize, readFileAsync, fileExistsAsync, isLargeFile, formatFileSize } from './utils/file-utils';
 import { isLocalPath as isLocalFilePath, normalizePath, sanitizeFileName } from './utils/platform';

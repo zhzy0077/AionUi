@@ -20,13 +20,11 @@ export interface OutboundMeta {
   /** Message text content */
   text?: string;
   /** Media type */
-  mediaType?: 'image' | 'voice' | 'video' | 'file';
+  mediaType?: 'image' | 'file';
   /** Media source: online URL */
   mediaUrl?: string;
   /** Media source: local file path or file name */
   mediaLocalPath?: string;
-  /** TTS raw text (only valid for voice type, used to store text before TTS) */
-  ttsText?: string;
 }
 
 type OnMessageSentCallback = (refIdx: string, meta: OutboundMeta) => void;
@@ -428,8 +426,8 @@ export async function sendProactiveGroupMessage(accessToken: string, groupOpenid
 
 export enum MediaFileType {
   IMAGE = 1,
-  VIDEO = 2,
-  VOICE = 3,
+  
+  
   FILE = 4,
 }
 
@@ -550,19 +548,7 @@ export async function sendGroupImageMessage(accessToken: string, groupOpenid: st
   return sendGroupMediaMessage(accessToken, groupOpenid, uploadResult.file_info, msgId, content);
 }
 
-export async function sendC2CVoiceMessage(accessToken: string, openid: string, voiceBase64: string, msgId?: string, ttsText?: string, filePath?: string): Promise<MessageResponse> {
-  const uploadResult = await uploadC2CMedia(accessToken, openid, MediaFileType.VOICE, undefined, voiceBase64, false);
-  return sendC2CMediaMessage(accessToken, openid, uploadResult.file_info, msgId, undefined, {
-    mediaType: 'voice',
-    ...(ttsText ? { ttsText } : {}),
-    ...(filePath ? { mediaLocalPath: filePath } : {}),
-  });
-}
 
-export async function sendGroupVoiceMessage(accessToken: string, groupOpenid: string, voiceBase64: string, msgId?: string): Promise<{ id: string; timestamp: string }> {
-  const uploadResult = await uploadGroupMedia(accessToken, groupOpenid, MediaFileType.VOICE, undefined, voiceBase64, false);
-  return sendGroupMediaMessage(accessToken, groupOpenid, uploadResult.file_info, msgId);
-}
 
 export async function sendC2CFileMessage(accessToken: string, openid: string, fileBase64?: string, fileUrl?: string, msgId?: string, fileName?: string, localFilePath?: string): Promise<MessageResponse> {
   const uploadResult = await uploadC2CMedia(accessToken, openid, MediaFileType.FILE, fileUrl, fileBase64, false, fileName);
@@ -574,15 +560,7 @@ export async function sendGroupFileMessage(accessToken: string, groupOpenid: str
   return sendGroupMediaMessage(accessToken, groupOpenid, uploadResult.file_info, msgId);
 }
 
-export async function sendC2CVideoMessage(accessToken: string, openid: string, videoUrl?: string, videoBase64?: string, msgId?: string, content?: string, localPath?: string): Promise<MessageResponse> {
-  const uploadResult = await uploadC2CMedia(accessToken, openid, MediaFileType.VIDEO, videoUrl, videoBase64, false);
-  return sendC2CMediaMessage(accessToken, openid, uploadResult.file_info, msgId, content, { text: content, mediaType: 'video', ...(videoUrl ? { mediaUrl: videoUrl } : {}), ...(localPath ? { mediaLocalPath: localPath } : {}) });
-}
 
-export async function sendGroupVideoMessage(accessToken: string, groupOpenid: string, videoUrl?: string, videoBase64?: string, msgId?: string, content?: string): Promise<{ id: string; timestamp: string }> {
-  const uploadResult = await uploadGroupMedia(accessToken, groupOpenid, MediaFileType.VIDEO, videoUrl, videoBase64, false);
-  return sendGroupMediaMessage(accessToken, groupOpenid, uploadResult.file_info, msgId, content);
-}
 
 // ==========================================
 // Background Token Refresh - Isolated by appId

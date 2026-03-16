@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  aionui:
+    image: docker.cnb.cool/zhzy0077/auto-dockerize/aionui
+    container_name: aionui
+    restart: unless-stopped
+    ports:
+      - "25808:25808"
+    environment:
+      - AIONUI_PORT=25808
+      - AIONUI_ALLOW_REMOTE=true
+      - AIONUI_CONFIG_DIR=/config
+    volumes:
+      - /data/data/aionui/config:/config
+      - /data/data/aionui/workspace:/workspace
+    networks:
+      - production
+networks:
+  production:
+    external: true
