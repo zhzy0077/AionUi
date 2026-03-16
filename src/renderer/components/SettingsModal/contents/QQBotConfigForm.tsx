@@ -265,7 +265,6 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
               disabled={isConnected}
             />
           </PreferenceRow>
-
         </div>
 
         {/* Test Connection Button */}
@@ -276,57 +275,48 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
         </div>
       </div>
 
-      {/* Model Selection */}
-      <div>
-        <SectionHeader title={t('settings.assistant.defaultModel', 'Default Model')} />
-        <div className='bg-bg-tertiary rounded-8px px-16px py-12px'>
-          <GeminiModelSelector selection={modelSelection} variant='settings' label={t('settings.qqbot.defaultModelDesc', 'Model used for QQ Bot conversations')} />
-        </div>
-      </div>
-
       {/* Agent Selection */}
-      <div>
-        <SectionHeader title={t('settings.qqbot.agent', 'Agent')} />
-        <div className='bg-bg-tertiary rounded-8px px-16px py-12px'>
-          <div className='flex items-center justify-between gap-24px'>
-            <div className='flex-1'>
-              <div className='text-14px text-t-primary'>{t('settings.qqbot.agentDesc', 'Used for QQ Bot conversations')}</div>
-              <div className='text-12px text-t-tertiary mt-2px'>
-                {selectedAgent.name || selectedAgent.backend}
-                {selectedAgent.customAgentId && ` (${selectedAgent.customAgentId})`}
-              </div>
-            </div>
-            <Dropdown
-              droplist={
-                <Menu>
-                  {availableAgents.map((agent) => (
+      <div className='flex flex-col gap-8px'>
+        <PreferenceRow label={t('settings.qqbot.agent', 'Agent')} description={t('settings.qqbot.agentDesc', 'Used for QQ Bot conversations')}>
+          <Dropdown
+            trigger='click'
+            position='br'
+            droplist={
+              <Menu selectedKeys={[selectedAgent.customAgentId ? `${selectedAgent.backend}|${selectedAgent.customAgentId}` : selectedAgent.backend]}>
+                {availableAgents.map((agent) => {
+                  const key = agent.customAgentId ? `${agent.backend}|${agent.customAgentId}` : agent.backend;
+                  return (
                     <Menu.Item
-                      key={agent.customAgentId || agent.backend}
+                      key={key}
                       onClick={() => {
-                        const newAgent = { backend: agent.backend, name: agent.name, customAgentId: agent.customAgentId };
-                        setSelectedAgent(newAgent);
-                        void persistSelectedAgent(newAgent);
+                        const currentKey = selectedAgent.customAgentId ? `${selectedAgent.backend}|${selectedAgent.customAgentId}` : selectedAgent.backend;
+                        if (key === currentKey) {
+                          return;
+                        }
+                        const next = { backend: agent.backend, customAgentId: agent.customAgentId, name: agent.name };
+                        setSelectedAgent(next);
+                        void persistSelectedAgent(next);
                       }}
                     >
-                      <div className='flex items-center gap-8px'>
-                        <span>{agent.name}</span>
-                        <span className='text-t-secondary text-12px'>({agent.backend})</span>
-                      </div>
+                      {agent.name}
                     </Menu.Item>
-                  ))}
-                </Menu>
-              }
-            >
-              <Button type='secondary' size='small'>
-                <div className='flex items-center gap-4px'>
-                  <span>{t('settings.assistant.selectModel', 'Select Model')}</span>
-                  <Down className='w-14px h-14px' />
-                </div>
-              </Button>
-            </Dropdown>
-          </div>
-        </div>
+                  );
+                })}
+              </Menu>
+            }
+          >
+            <Button type='secondary' className='min-w-160px flex items-center justify-between gap-8px'>
+              <span className='truncate'>{selectedAgent.name || availableAgents.find((a) => (a.customAgentId ? `${a.backend}|${a.customAgentId}` : a.backend) === (selectedAgent.customAgentId ? `${selectedAgent.backend}|${selectedAgent.customAgentId}` : selectedAgent.backend))?.name || selectedAgent.backend}</span>
+              <Down theme='outline' size={14} />
+            </Button>
+          </Dropdown>
+        </PreferenceRow>
       </div>
+
+      {/* Default Model Selection */}
+      <PreferenceRow label={t('settings.assistant.defaultModel', 'Model')} description={t('settings.qqbot.defaultModelDesc', 'Model used for QQ Bot conversations')}>
+        <GeminiModelSelector selection={modelSelection} variant='settings' />
+      </PreferenceRow>
 
       {/* Next Steps */}
       <div>
