@@ -316,18 +316,20 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
         <GeminiModelSelector selection={modelSelection} variant='settings' />
       </PreferenceRow>
 
-      {/* Next Steps */}
-      <div>
-        <SectionHeader title={t('settings.assistant.nextSteps', 'Next Steps')} />
-        <div className='bg-bg-tertiary rounded-8px px-16px py-12px'>
-          <ol className='text-14px text-t-secondary m-0 pl-20px space-y-8px'>
-            <li>{t('settings.qqbot.step1', 'Open QQ and find your bot')}</li>
-            <li>{t('settings.qqbot.step2', 'Send any message to initiate pairing')}</li>
-            <li>{t('settings.qqbot.step3', 'A pairing request will appear below. Click "Approve" to authorize the user.')}</li>
-            <li>{t('settings.qqbot.step4', 'Once approved, you can start chatting with the AI assistant through QQ!')}</li>
-          </ol>
+      {/* Next Steps - only show when connected */}
+      {isConnected && (
+        <div>
+          <SectionHeader title={t('settings.assistant.nextSteps', 'Next Steps')} />
+          <div className='bg-bg-tertiary rounded-8px px-16px py-12px'>
+            <ol className='text-14px text-t-secondary m-0 pl-20px space-y-8px'>
+              <li>{t('settings.qqbot.step1', 'Open QQ and find your bot')}</li>
+              <li>{t('settings.qqbot.step2', 'Send any message to initiate pairing')}</li>
+              <li>{t('settings.qqbot.step3', 'A pairing request will appear below. Click "Approve" to authorize the user.')}</li>
+              <li>{t('settings.qqbot.step4', 'Once approved, you can start chatting with the AI assistant through QQ!')}</li>
+            </ol>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Pending Pairings */}
       <div>
