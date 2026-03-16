@@ -621,7 +621,7 @@
     "step4": "Once approved, you can start chatting with the AI assistant through QQ!",
     "waitingConnection": "Connection is being established. Please wait...",
     "agent": "Agent",
-    "agentDesc": "Used for QQ Bot conversations",
+    "agentDesc": "Used for QQ Bot conversations"
   },
   "extensionAssistantReadonly": "Extension assistants are read-only. You can duplicate it and edit the copy."
 }
