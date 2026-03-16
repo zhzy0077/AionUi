@@ -1131,7 +1131,6 @@ export type I18nKey =
   | 'settings.webui.currentPasswordPlaceholder'
   | 'settings.webui.currentPasswordRequired'
   | 'settings.webui.description'
-  | 'settings.webui.descriptionWebuiContext'
   | 'settings.webui.enable'
   | 'settings.webui.enableDesc'
   | 'settings.webui.featureChannelsDesc'

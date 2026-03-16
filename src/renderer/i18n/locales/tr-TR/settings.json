@@ -179,7 +179,6 @@
   "builtin": "Yerleşik",
   "channels": "Kanallar",
   "webui.description": "AionUi'nizi \"7/24 Uzaktan Asistan\" olarak kullanın - görevleri istediğiniz zaman, istediğiniz yerden herhangi bir uzak cihazdan düzenleyin.",
-  "webui.descriptionWebuiContext": "WebUI sunucu ayarlarını, erişim kimlik bilgilerini ve bağlantı seçeneklerini yönetin.",
   "webui.steps": "Adım 1. Web Arayüzünü açın; Adım 2. Erişim URL'sini kopyalayın; Adım 3. Uzak tarayıcıda açın",
   "webui.configuration": "Web Arayüzü Yapılandırması",
   "webui.enable": "Web Arayüzünü Etkinleştir",

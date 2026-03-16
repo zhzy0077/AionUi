@@ -179,7 +179,6 @@
   "builtin": "Built-in",
   "channels": "Channels",
   "webui.description": "Use AionUi as your \"24/7 Remote Assistant\" - arrange tasks from any remote device, anytime, anywhere.",
-  "webui.descriptionWebuiContext": "Manage your WebUI server settings, access credentials, and connection options.",
   "webui.steps": "Step 1. Turn on WebUI; Step 2. Copy the access URL; Step 3. Open in remote browser",
   "webui.configuration": "WebUI Configuration",
   "webui.enable": "Enable WebUI",
