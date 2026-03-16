@@ -9,6 +9,7 @@ Channels 是 AionUi 的多平台 AI 助手框架，将 AionUi 的 AI 能力（Ge
 | **Telegram**         | grammY                  | 长轮询 (Long Polling) | 编辑消息文本                    |
 | **Lark（飞书）**     | @larksuiteoapi/node-sdk | WebSocket 长连接      | 编辑互动卡片 (Interactive Card) |
 | **DingTalk（钉钉）** | dingtalk-stream         | WebSocket Stream      | AI Card 流式更新                |
+| **QQ Bot**           | ws (原生 WebSocket)     | WebSocket Gateway     | 发送新消息 (不支持编辑)         |
 
 核心设计原则：**平台无关的统一消息协议** — 所有平台插件将原生消息转换为 `IUnifiedIncomingMessage`，所有回复通过 `IUnifiedOutgoingMessage` 发出，由各平台适配器转回原生格式。
 
@@ -69,6 +70,12 @@ src/channels/
 │       ├── DingTalkCards.ts          # AI Card / ActionCard 模板
 │       ├── README.md                 # DingTalk 插件说明
 │       └── index.ts
+│   │
+│   └── qqbot/                        # QQ Bot 插件
+│       ├── QQBotPlugin.ts            # WebSocket Gateway 连接、Token 管理
+│       ├── QQBotAdapter.ts           # 消息格式转换（QQ Bot ↔ Unified）
+│       ├── README.md                 # QQ Bot 插件说明
+│       └── index.ts
 │
 └── utils/                            # 工具函数
     ├── credentialCrypto.ts           # 凭据 Base64 编解码
@@ -87,6 +94,7 @@ graph TB
         TG[Telegram]
         LK[Lark / 飞书]
         DT[DingTalk / 钉钉]
+        QQ[QQ Bot]
     end
 
     subgraph "Plugin Layer 插件层"
@@ -96,6 +104,8 @@ graph TB
         larksuiteoapi · WebSocket"]
         DP["DingTalkPlugin
         dingtalk-stream · AI Card"]
+        QP["QQBotPlugin
+        ws · WebSocket Gateway"]
     end
 
     subgraph "Gateway Layer 网关层"
@@ -573,6 +583,23 @@ created → initializing → ready → starting → running → stopping → sto
 - **消息限制**：4000 字符
 - **HTTP**：使用 Node.js 原生 `https` 模块，30 秒超时
 
+### 7.5 QQBotPlugin（QQ Bot）
+
+- **SDK**：原生 WebSocket (`ws`)
+- **连接模式**：WebSocket Gateway（QQ Bot API v2）
+- **Token 管理**：手动管理 `accessToken`，调用 `/app/getAppAccessToken` 获取，缓存至过期前 60 秒
+- **事件处理**：
+  - `C2C_MESSAGE_CREATE` — C2C 私聊消息
+  - `GROUP_AT_MESSAGE_CREATE` — 群聊 @ 消息
+  - `DIRECT_MESSAGE_CREATE` — 频道私信
+  - `GUILD_MESSAGE_CREATE` — 频道消息
+- **消息更新**：QQ Bot API 不支持编辑消息，流式更新时发送新消息
+- **Intents**：使用 `0`（无特殊订阅），与参考实现一致
+- **chatId 编码**：私聊 `c2c:{openid}`，群聊 `group:{group_openid}`，频道 `guild:{guild_id}:{channel_id}`
+- **消息限制**：4000 字符
+- **重连策略**：指数退避 + 抖动，最多 10 次尝试
+- **HTTP**：使用 Node.js 原生 `https` 模块，30 秒超时
+
 ---
 
 ## 8. IPC 通信
@@ -616,9 +643,10 @@ IPC 处理器注册在 `src/process/bridge/channelBridge.ts` 的 `initChannelBri
 | **策略模式**   | `BasePlugin` + 三个具体插件                                                    | 统一接口，不同平台实现                                         |
 | **注册表模式** | `PluginManager.pluginRegistry`, `ActionExecutor.actionRegistry`                | 动态注册处理器，按名称/类型查找                                |
 | **观察者模式** | `ChannelEventBus` (extends `EventEmitter`)                                     | Agent → Channel 的解耦消息传递                                 |
-| **适配器模式** | `TelegramAdapter`, `LarkAdapter`, `DingTalkAdapter`                            | 平台原生格式 ↔ 统一格式转换                                    |
+| **适配器模式** | `TelegramAdapter`, `LarkAdapter`, `DingTalkAdapter`, `QQBotAdapter`            | 平台原生格式 ↔ 统一格式转换                                    |
 | **状态机模式** | `BasePlugin` 生命周期                                                          | `created→initializing→ready→starting→running→stopping→stopped` |
 | **复合键模式** | `SessionManager.buildKey(userId, chatId)`                                      | 支持 per-chat 会话隔离                                         |
 | **节流模式**   | `ActionExecutor.handleChatMessage()`                                           | 500ms 定时器节流流式消息更新                                   |
 | **降级策略**   | `DingTalkPlugin.sendMessage()`                                                 | AI Card → sessionWebhook → Open API 三级降级                   |
+| **事件去重**   | `LarkPlugin`, `DingTalkPlugin`, `QQBotPlugin`                                  | `processedEvents` Map + TTL 清理                               |
 | **事件去重**   | `LarkPlugin`, `DingTalkPlugin`                                                 | `processedEvents` Map + TTL 清理                               |
