@@ -599,12 +599,10 @@ const WebuiModalContent: React.FC = () => {
           <PreferenceRow
             label={t('settings.webui.enable')}
             extra={
-              isDesktop
-                ? (startLoading ? <span className='text-12px text-warning'>{t('settings.webui.starting')}</span> : status?.running ? <span className='text-12px text-success'>✓ {t('settings.webui.running')}</span> : null)
-                : <span className='text-12px text-success'>✓ {t('settings.webui.running')}</span>
+              startLoading ? <span className='text-12px text-warning'>{t('settings.webui.starting')}</span> : status?.running ? <span className='text-12px text-success'>✓ {t('settings.webui.running')}</span> : null
             }
           >
-            <Switch checked={isDesktop ? webuiEnabled : true} disabled={!isDesktop} loading={isDesktop ? startLoading : false} onChange={isDesktop ? handleToggle : undefined} />
+            <Switch checked={webuiEnabled} loading={startLoading} onChange={handleToggle} disabled={!isDesktop} />
           </PreferenceRow>
 
           {/* 访问地址（仅运行时显示）/ Access URL (only when running) */}
