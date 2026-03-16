@@ -9,7 +9,7 @@
 /**
  * Built-in platform types for channel plugins.
  */
-export type BuiltinPluginType = 'telegram' | 'slack' | 'discord' | 'lark' | 'dingtalk';
+export type BuiltinPluginType = 'telegram' | 'slack' | 'discord' | 'lark' | 'dingtalk' | 'qqbot';
 
 /**
  * Supported platform types for plugins.
@@ -52,6 +52,9 @@ export function hasPluginCredentials(type: PluginType, credentials?: IPluginCred
   if (type === 'lark') return !!(credentials.appId && credentials.appSecret);
   if (type === 'dingtalk') return !!(credentials.clientId && credentials.clientSecret);
   if (type === 'telegram') return !!credentials.token;
+  // Note: QQ Bot API uses 'clientSecret' in their docs, but we use 'appSecret'
+  // to maintain consistency with Lark/DingTalk patterns in AionUi
+  if (type === 'qqbot') return !!(credentials.appId && credentials.appSecret);
   // Extension or unknown plugins: check if any credential value is non-empty
   return Object.values(credentials).some((v) => v !== undefined && v !== null && v !== '');
 }
@@ -501,14 +504,14 @@ export function pairingRequestToRow(request: IChannelPairingRequest): IChannelPa
  * Channel platform type for model configuration.
  * Includes built-in platforms and extension-contributed platforms (string).
  */
-export type ChannelPlatform = 'telegram' | 'lark' | 'dingtalk' | (string & {});
+export type ChannelPlatform = 'telegram' | 'lark' | 'dingtalk' | 'qqbot' | (string & {});
 
 /**
  * Type guard to check if a string is a known built-in ChannelPlatform.
  * Extension platform types are valid but not matched here.
  */
-export function isBuiltinChannelPlatform(value: string): value is 'telegram' | 'lark' | 'dingtalk' {
-  return value === 'telegram' || value === 'lark' || value === 'dingtalk';
+export function isBuiltinChannelPlatform(value: string): value is 'telegram' | 'lark' | 'dingtalk' | 'qqbot' {
+  return value === 'telegram' || value === 'lark' || value === 'dingtalk' || value === 'qqbot';
 }
 
 /**
@@ -539,7 +542,7 @@ export function resolveChannelConvType(backend: string): { convType: string; con
  * - empty segments are omitted
  */
 export function getChannelConversationName(platform: ChannelPlatform | PluginType, type?: string, backend?: string, chatId?: string): string {
-  const shortPlatform: Record<string, string> = { telegram: 'tg', dingtalk: 'ding' };
+  const shortPlatform: Record<string, string> = { telegram: 'tg', dingtalk: 'ding', qqbot: 'qq' };
   const parts: string[] = [shortPlatform[platform] ?? platform];
   if (type) parts.push(type);
   if (type === 'acp' && backend) parts.push(backend);
