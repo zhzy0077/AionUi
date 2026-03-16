@@ -143,6 +143,9 @@ export interface QQBotApiResponse {
   code?: number;
   message?: string;
   data?: unknown;
+  // Token response fields
+  access_token?: string;
+  expires_in?: number;
 }
 
 // ==================== Helper Types ====================
