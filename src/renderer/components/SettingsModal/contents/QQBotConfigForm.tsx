@@ -316,49 +316,67 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
         <GeminiModelSelector selection={modelSelection} variant='settings' />
       </PreferenceRow>
 
-      {/* Next Steps - only show when connected */}
-      {isConnected && (
-        <div>
-          <SectionHeader title={t('settings.assistant.nextSteps', 'Next Steps')} />
-          <div className='bg-bg-tertiary rounded-8px px-16px py-12px'>
-            <ol className='text-14px text-t-secondary m-0 pl-20px space-y-8px'>
-              <li>{t('settings.qqbot.step1', 'Open QQ and find your bot')}</li>
-              <li>{t('settings.qqbot.step2', 'Send any message to initiate pairing')}</li>
-              <li>{t('settings.qqbot.step3', 'A pairing request will appear below. Click "Approve" to authorize the user.')}</li>
-              <li>{t('settings.qqbot.step4', 'Once approved, you can start chatting with the AI assistant through QQ!')}</li>
-            </ol>
-          </div>
+      {/* Connection Status - only show when enabled and no authorized users */}
+      {pluginStatus?.enabled && authorizedUsers.length === 0 && (
+        <div className={`rd-12px p-16px border ${pluginStatus?.connected ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : pluginStatus?.error ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'}`}>
+          <SectionHeader title={t('settings.qqbot.connectionStatus', 'Connection Status')} action={<span className={`text-12px px-8px py-2px rd-4px ${pluginStatus?.connected ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : pluginStatus?.error ? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'}`}>{pluginStatus?.connected ? t('settings.qqbot.statusConnected', 'Connected') : pluginStatus?.error ? t('settings.qqbot.statusError', 'Error') : t('settings.qqbot.statusConnecting', 'Connecting...')}</span>} />
+          {pluginStatus?.error && <div className='text-14px text-red-600 dark:text-red-400 mb-12px'>{pluginStatus.error}</div>}
+          {pluginStatus?.connected && (
+            <div className='text-14px text-t-secondary space-y-8px'>
+              <p className='m-0 font-500'>{t('settings.assistant.nextSteps', 'Next Steps')}:</p>
+              <p className='m-0'>
+                <strong>1.</strong> {t('settings.qqbot.step1', 'Open QQ and find your bot')}
+              </p>
+              <p className='m-0'>
+                <strong>2.</strong> {t('settings.qqbot.step2', 'Send any message to initiate pairing')}
+              </p>
+              <p className='m-0'>
+                <strong>3.</strong> {t('settings.qqbot.step3', 'A pairing request will appear below. Click "Approve" to authorize the user.')}
+              </p>
+              <p className='m-0'>
+                <strong>4.</strong> {t('settings.qqbot.step4', 'Once approved, you can start chatting with the AI assistant through QQ!')}
+              </p>
+            </div>
+          )}
+          {!pluginStatus?.connected && !pluginStatus?.error && <div className='text-14px text-t-secondary'>{t('settings.qqbot.waitingConnection', 'Connection is being established. Please wait...')}</div>}
         </div>
       )}
 
-      {/* Pending Pairings */}
-      <div>
-        <SectionHeader
-          title={t('settings.assistant.pendingPairings', 'Pending Pairing Requests')}
-          action={
-            <Button type='text' size='small' onClick={() => void loadPendingPairings()} loading={pairingLoading} icon={<Refresh className='w-14px h-14px' />}>
-              {t('common.refresh', 'Refresh')}
-            </Button>
-          }
-        />
-        <div className='bg-bg-tertiary rounded-8px px-16px py-12px'>
-          {pendingPairings.length === 0 ? (
+      {/* Pending Pairings - only show when enabled and no authorized users */}
+      {pluginStatus?.enabled && authorizedUsers.length === 0 && (
+        <div className='bg-fill-1 rd-12px pt-16px pr-16px pb-16px pl-0'>
+          <SectionHeader
+            title={t('settings.assistant.pendingPairings', 'Pending Pairing Requests')}
+            action={
+              <Button size='mini' type='text' icon={<Refresh size={14} />} loading={pairingLoading} onClick={loadPendingPairings}>
+                {t('conversation.workspace.refresh', 'Refresh')}
+              </Button>
+            }
+          />
+
+          {pairingLoading ? (
+            <div className='flex justify-center py-24px'>
+              <Spin />
+            </div>
+          ) : pendingPairings.length === 0 ? (
             <Empty description={t('settings.assistant.noPendingPairings', 'No pending pairing requests')} />
           ) : (
-            <div className='space-y-12px'>
+            <div className='flex flex-col gap-12px'>
               {pendingPairings.map((pairing) => (
-                <div key={pairing.code} className='flex items-center justify-between py-8px border-b border-t-tertiary last:border-0'>
-                  <div className='flex flex-col'>
-                    <span className='text-14px text-t-primary font-500'>{pairing.displayName || pairing.platformUserId}</span>
-                    <span className='text-12px text-t-secondary'>
-                      {t('settings.assistant.pairingCode', 'Code')}: {pairing.code} • {formatRelativeTime(pairing.requestedAt)}
-                    </span>
+                <div key={pairing.code} className='flex items-center justify-between bg-fill-2 rd-8px p-12px'>
+                  <div className='flex-1'>
+                    <div className='flex items-center gap-8px'>
+                      <span className='text-14px font-500 text-t-primary'>{pairing.displayName || 'Unknown User'}</span>
+                    </div>
+                    <div className='text-12px text-t-tertiary mt-4px'>
+                      {t('settings.assistant.pairingCode', 'Code')}: <code className='bg-fill-3 px-4px rd-2px'>{pairing.code}</code>
+                    </div>
                   </div>
-                  <div className='flex gap-8px'>
-                    <Button type='primary' size='small' onClick={() => void handleApprovePairing(pairing.code)}>
+                  <div className='flex items-center gap-8px'>
+                    <Button type='primary' size='small' icon={<CheckOne size={14} />} onClick={() => handleApprovePairing(pairing.code)}>
                       {t('settings.assistant.approve', 'Approve')}
                     </Button>
-                    <Button type='secondary' size='small' status='danger' onClick={() => void handleRejectPairing(pairing.code)}>
+                    <Button type='secondary' size='small' status='danger' icon={<CloseOne size={14} />} onClick={() => handleRejectPairing(pairing.code)}>
                       {t('settings.assistant.reject', 'Reject')}
                     </Button>
                   </div>
@@ -367,40 +385,47 @@ const QQBotConfigForm: React.FC<QQBotConfigFormProps> = ({ pluginStatus, modelSe
             </div>
           )}
         </div>
-      </div>
+      )}
 
-      {/* Authorized Users */}
-      <div>
-        <SectionHeader
-          title={t('settings.assistant.authorizedUsers', 'Authorized Users')}
-          action={
-            <Button type='text' size='small' onClick={() => void loadAuthorizedUsers()} loading={usersLoading} icon={<Refresh className='w-14px h-14px' />}>
-              {t('common.refresh', 'Refresh')}
-            </Button>
-          }
-        />
-        <div className='bg-bg-tertiary rounded-8px px-16px py-12px'>
-          {authorizedUsers.length === 0 ? (
+      {/* Authorized Users - only show when there are authorized users */}
+      {authorizedUsers.length > 0 && (
+        <div className='bg-fill-1 rd-12px pt-16px pr-16px pb-16px pl-0'>
+          <SectionHeader
+            title={t('settings.assistant.authorizedUsers', 'Authorized Users')}
+            action={
+              <Button size='mini' type='text' icon={<Refresh size={14} />} loading={usersLoading} onClick={loadAuthorizedUsers}>
+                {t('common.refresh', 'Refresh')}
+              </Button>
+            }
+          />
+
+          {usersLoading ? (
+            <div className='flex justify-center py-24px'>
+              <Spin />
+            </div>
+          ) : authorizedUsers.length === 0 ? (
             <Empty description={t('settings.assistant.noAuthorizedUsers', 'No authorized users yet')} />
           ) : (
-            <div className='space-y-12px'>
+            <div className='flex flex-col gap-12px'>
               {authorizedUsers.map((user) => (
-                <div key={user.id} className='flex items-center justify-between py-8px border-b border-t-tertiary last:border-0'>
-                  <div className='flex flex-col'>
-                    <span className='text-14px text-t-primary font-500'>{user.displayName || user.platformUserId}</span>
-                    <span className='text-12px text-t-secondary'>
-                      {t('settings.assistant.platform', 'Platform')}: {user.platformType} • {t('settings.assistant.authorizedAt', 'Authorized')}: {formatRelativeTime(user.authorizedAt)}
-                    </span>
+                <div key={user.id} className='flex items-center justify-between bg-fill-2 rd-8px p-12px'>
+                  <div className='flex-1'>
+                    <div className='flex items-center gap-8px'>
+                      <span className='text-14px font-500 text-t-primary'>{user.displayName || user.platformUserId}</span>
+                    </div>
+                    <div className='text-12px text-t-tertiary mt-4px'>
+                      {t('settings.assistant.platform', 'Platform')}: {user.platformType}
+                    </div>
                   </div>
-                  <Tooltip content={t('settings.assistant.revokeAccess', 'Revoke access')}>
-                    <Button type='text' size='small' status='danger' onClick={() => void handleRevokeUser(user.id)} icon={<Delete className='w-16px h-16px' />} />
-                  </Tooltip>
+                  <Button type='text' size='small' status='danger' icon={<Delete size={14} />} onClick={() => handleRevokeUser(user.id)}>
+                    {t('settings.assistant.revoke', 'Revoke')}
+                  </Button>
                 </div>
               ))}
             </div>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 };
