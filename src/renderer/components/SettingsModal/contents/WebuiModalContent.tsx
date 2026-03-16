@@ -549,21 +549,7 @@ const WebuiModalContent: React.FC = () => {
   };
   const displayPassword = getDisplayPassword();
 
-  // 浏览器端只显示 Channels 配置，不显示 WebUI 服务配置 / In browser mode, only show Channels config, not WebUI service config
-  if (!isDesktop) {
-    return (
-      <div className='flex flex-col h-full w-full'>
-        <AionScrollArea className='flex-1 min-h-0 pb-16px' disableOverflow={isPageMode}>
-          <div className='space-y-16px'>
-            <h2 className='text-20px font-500 text-t-primary m-0'>Channels</h2>
-            <Suspense fallback={<div className='text-13px text-t-secondary'>{t('common.loading')}</div>}>
-              <ChannelModalContentLazy />
-            </Suspense>
-          </div>
-        </AionScrollArea>
-      </div>
-    );
-  }
+  // 浏览器端显示 WebUI 配置和 Channels 配置 / In browser mode, show both WebUI config and Channels config
 
   const webuiPanel = (
     <AionScrollArea className='flex-1 min-h-0 pb-16px' disableOverflow={isPageMode}>
