@@ -1,1992 +1,1325 @@
-# AionUi WebSocket-Only Migration Plan
+# AionUi Web Migration - Additive-Only Architecture
 
-## Pure Web Conversion with Maximum Code Reuse
+## TL;DR
 
-**Version**: 1.0  
-**Approach**: WebSocket-Only (No REST API)  
-**Estimated Duration**: 3-4 weeks  
-**Code Reuse Target**: 97%  
-**Risk Level**: Low (existing infrastructure)
-
----
-
-## Executive Summary
-
-This plan details the migration of AionUi from Electron to a pure web application using the **existing WebSocket infrastructure**. Unlike a hybrid REST+WebSocket approach that requires building 120+ HTTP endpoints, this plan leverages the production-ready WebSocket system already in use by AionUi's WebUI mode.
-
-### Key Metrics
-
-| Metric                | Value                         |
-| --------------------- | ----------------------------- |
-| **Estimated Effort**  | 132 hours (3-4 weeks)         |
-| **Code Reuse**        | 97% (~58,000 lines unchanged) |
-| **Files Modified**    | ~25 files (~370 lines)        |
-| **Files Removed**     | ~5 Electron-specific files    |
-| **New Files Created** | ~8 files                      |
-| **Risk Level**        | Low                           |
-| **Cost Estimate**     | $10,000-15,000                |
-
-### Why This Approach Works
-
-1. **Infrastructure Exists**: `src/adapter/browser.ts` is production-ready WebSocket client
-2. **Same Message Format**: Electron IPC and WebSocket use identical JSON format
-3. **Bridge Compatibility**: All 100+ IPC handlers work without modification
-4. **Tested in Production**: WebSocket mode already powers WebUI
-5. **No API Mapping**: Eliminates 120+ route creation tasks
+> **Zero Merge Conflict Strategy**: Convert AionUi to web deployment while keeping 100% of existing Electron code intact.
+>
+> **Key Innovation**: Additive-only changes - only 3 files modified, 10 new files added. Existing codebase remains untouched for easy upstream syncing.
+>
+> **Architecture**: Dual-mode deployment - Electron and Web share the same business logic, database, agents, and IPC bridges via WebSocket adapter.
+>
+> **Estimated Duration**: 8-10 days (vs 17 days in original plan)
+> **Merge Conflict Risk**: Near-zero (only package.json scripts modified)
+> **Upstream Sync Strategy**: Daily rebases with no conflicts
 
 ---
 
-## Phase Overview
+## Context
 
-```
-Week 1: Foundation & Electron Removal
-├── Phase 0: Setup & Project Structure
-└── Phase 1: Remove Electron Dependencies
+### The Problem with "Traditional" Migration
 
-Week 2: Core Migration
-├── Phase 2: Create Pure Web Entry Point
-└── Phase 3: Adapt Frontend for Web Mode
+Original plan modified ~25 files over 3-4 weeks:
 
-Week 3: File Handling & Testing
-├── Phase 4: File Handling Web Migration
-└── Phase 5: Testing & Quality Assurance
+- `src/index.ts` - Extract logic, remove Electron imports
+- `src/preload.ts` - Remove Electron APIs
+- `src/renderer/index.tsx` - Change entry point
+- 20+ other files
 
-Week 4: Deployment
-└── Phase 6: Deployment & Documentation
-```
+**Result**: Constant merge conflicts with active upstream (3-5 PRs/day), code drift, difficult maintenance.
+
+### The Additive-Only Solution
+
+**Philosophy**: Don't modify - extend.
+
+Create parallel entry points that coexist with existing code:
+
+- `src/server.ts` (NEW) → runs alongside `src/index.ts`
+- `src/renderer/web-entry.tsx` (NEW) → builds alongside existing renderer
+- `vite.web.config.ts` (NEW) → separate build config
+- **Existing files**: 100% unchanged
 
 ---
 
-## Phase 0: Setup & Foundation
+## Work Objectives
 
-### Objective
+### Core Objective
 
-Prepare the project structure and verify the existing WebSocket infrastructure works correctly.
+Enable AionUi web deployment with **zero modifications to existing Electron code**, ensuring seamless upstream synchronization.
 
-### Duration
+### Concrete Deliverables
 
-**2-3 days** (16 hours)
+- [ ] `src/server.ts` - Pure Node.js entry point (NEW)
+- [ ] `src/renderer/web-entry.tsx` - Web renderer entry (NEW)
+- [ ] `vite.web.config.ts` - Web build configuration (NEW)
+- [ ] `src/webserver/routes/fileUploadRoutes.ts` - File upload endpoints (NEW)
+- [ ] Docker deployment configuration (NEW)
+- [ ] Both Electron and Web modes functional from same codebase
 
-### Deliverables
-
-- [ ] Branch created for migration
-- [ ] Dependencies audited
-- [ ] Build pipeline configured
-- [ ] WebSocket infrastructure verified
-- [ ] Development environment documented
-
-### TODOs
-
-#### Task 0.1: Create Migration Branch
-
-**What to do:**
-
-- Create feature branch `feat/pure-web-migration`
-- Set up branch protection rules
-- Document branch strategy
-
-**Files to modify:**
-
-- `.github/workflows/` - Add branch to CI triggers
-
-**Verification:**
+### Definition of Done
 
 ```bash
-git branch -a | grep pure-web
-# Should show: remotes/origin/feat/pure-web-migration
+# Electron mode (unchanged)
+bun run start
+
+# Web mode (new)
+bun run dev:web    # Frontend dev server
+bun run dev:server # Backend server
+bun run build:web  # Production build
 ```
 
-**Commit:** `chore: create pure-web-migration branch`
+### Must Have
+
+- [ ] Existing Electron functionality 100% preserved
+- [ ] Web mode fully functional via WebSocket
+- [ ] All 100+ IPC bridges work in both modes
+- [ ] File upload/download working in web mode
+- [ ] Database, agents, workers unchanged
+
+### Must NOT Have (Guardrails)
+
+- [ ] **NO modifications to `src/index.ts`** - Keep Electron entry intact
+- [ ] **NO modifications to `src/preload.ts`** - Keep preload intact
+- [ ] **NO modifications to `src/renderer/index.tsx`** - Keep renderer entry intact
+- [ ] **NO deletions of Electron-specific code** - Extract, don't remove
+- [ ] **NO changes to business logic** - Only add infrastructure
+- [ ] **NO breaking changes to IPC handlers** - WebSocket adapter handles compatibility
 
 ---
 
-#### Task 0.2: Audit Dependencies
+## Verification Strategy
 
-**What to do:**
+### Test Decision
 
-- Identify all Electron-specific dependencies
-- Mark dependencies for removal
-- Identify missing web dependencies
-- Document dependency changes
+- **Infrastructure exists**: YES (Vitest + Playwright)
+- **Automated tests**: YES (after implementation)
+- **Framework**: bun test + Playwright
 
-**Files to read:**
+### QA Policy
 
-- `package.json` - Main dependencies
-- `electron.vite.config.ts` - Build dependencies
-
-**Analysis checklist:**
-
-- [ ] List all packages with "electron" in name
-- [ ] Identify build-time vs runtime dependencies
-- [ ] Check which dependencies are used in main vs renderer
-- [ ] Document native modules (better-sqlite3, etc.)
-
-**Output:** `docs/migration/dependency-audit.md`
-
-**Commit:** `docs: audit dependencies for web migration`
+Every task includes agent-executed QA scenarios. Evidence saved to `.sisyphus/evidence/`.
 
 ---
 
-#### Task 0.3: Verify WebSocket Infrastructure
+## Execution Strategy
 
-**What to do:**
+### Parallel Execution Waves
 
-- Test existing WebSocket implementation
-- Verify browser.ts adapter connects correctly
-- Test message routing through adapter
-- Document any issues found
-
-**Test steps:**
-
-```bash
-# 1. Start WebUI mode (existing functionality)
-bun run webui
-
-# 2. Open browser to http://localhost:3000
-
-# 3. Verify WebSocket connection in DevTools
-# - Check Network tab for WebSocket connection
-# - Verify no errors in console
-
-# 4. Test basic functionality
-# - Login
-# - Create conversation
-# - Send message
-# - Verify real-time streaming works
 ```
+Wave 1 (Foundation - Independent, can start immediately):
+├── Task 1: Create server.ts entry point (NEW file only)
+├── Task 2: Create vite.web.config.ts (NEW file only)
+├── Task 3: Add npm scripts to package.json (minimal change)
+└── Task 4: Verify WebSocket infrastructure (no code changes)
 
-**Files to examine:**
+Wave 2 (Renderer - Independent):
+├── Task 5: Create web-entry.tsx (NEW file only)
+├── Task 6: Configure web build pipeline
+└── Task 7: Test browser.ts auto-detection
 
-- `src/adapter/browser.ts` - WebSocket client
-- `src/webserver/websocket/WebSocketManager.ts` - Server-side
-- `src/webserver/adapter.ts` - Integration
+Wave 3 (File Handling - After Wave 1):
+├── Task 8: Add file upload endpoints (NEW routes)
+├── Task 9: Create file upload UI components (NEW components)
+└── Task 10: Replace dialogBridge in web mode
 
-**Expected results:**
+Wave 4 (Integration & Testing - After Waves 1-3):
+├── Task 11: End-to-end integration tests
+├── Task 12: Docker configuration
+├── Task 13: Deployment documentation
+└── Task 14: Final verification (both modes)
 
-- WebSocket connects successfully
-- Messages route correctly
-- Authentication works
-- Streaming responses functional
+Wave FINAL (Review - Parallel):
+├── Task F1: Plan compliance audit (verify no unintended modifications)
+├── Task F2: Code quality review
+├── Task F3: Upstream sync verification
+└── Task F4: Scope fidelity check
 
-**Verification command:**
-
-```bash
-# Automated check
-curl -i -N \
-  -H "Connection: Upgrade" \
-  -H "Upgrade: websocket" \
-  -H "Host: localhost:3000" \
-  -H "Origin: http://localhost:3000" \
-  http://localhost:3000
-
-# Should return: HTTP/1.1 101 Switching Protocols
+Critical Path: Task 1 → Task 8 → Task 11 → F1-F4
+Parallel Speedup: ~60% faster than sequential
 ```
-
-**Commit:** `test: verify WebSocket infrastructure functionality`
 
 ---
 
-#### Task 0.4: Configure Build Pipeline
+## TODOs
 
-**What to do:**
+- [ ] **1. Create Server Entry Point**
 
-- Set up separate build configs for server and web
-- Configure Vite for frontend (remove Electron plugin)
-- Configure TypeScript for Node.js server
-- Set up development scripts
+  **What to do:**
+  Create `src/server.ts` as a NEW file that extracts the webserver startup logic from `src/index.ts` WITHOUT modifying `src/index.ts`.
 
-**Files to create/modify:**
+  Key requirements:
+  - Copy initialization sequence from `src/index.ts` lines 770-860
+  - Remove Electron-specific code (app, BrowserWindow, Tray, etc.)
+  - Use `process.cwd()` instead of `app.getPath()`
+  - Keep all business logic (initializeProcess, startWebServer, workers)
+  - Add graceful shutdown handlers
 
-**New: `vite.web.config.ts`**
+  **Must NOT do:**
+  - Do NOT modify `src/index.ts`
+  - Do NOT delete any Electron code from existing files
+  - Do NOT change IPC handlers or bridges
 
-```typescript
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import path from 'path';
+  **Files to create:**
+  - `src/server.ts` (~100 lines, NEW)
 
-export default defineConfig({
-  plugins: [react()],
-  root: 'src/renderer',
-  build: {
-    outDir: '../../dist/web',
-    emptyOutDir: true,
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-      '@renderer': path.resolve(__dirname, './src/renderer'),
-      '@common': path.resolve(__dirname, './src/common'),
-    },
-  },
-  server: {
-    port: 5173,
-    proxy: {
-      '/api': 'http://localhost:3000',
-      '/ws': {
-        target: 'ws://localhost:3000',
-        ws: true,
+  **Files to read (for reference only):**
+  - `src/index.ts` lines 1-150 (imports and setup)
+  - `src/index.ts` lines 770-860 (initialization sequence)
+  - `src/webserver/index.ts` (webserver startup)
+
+  **Pattern to follow:**
+  The server.ts should mirror the initialization in index.ts but skip Electron setup:
+
+  ```typescript
+  // src/server.ts structure
+  import './utils/configureConsoleLog';
+  import { initializeProcess } from './process';
+  import { startWebServer } from './webserver';
+  // ... other imports
+
+  async function main() {
+    await loadShellEnvironmentAsync();
+    await initializeProcess();
+    await startWebServer();
+    // ... etc
+  }
+  ```
+
+  **Recommended Agent Profile:**
+  - **Category**: `quick` (straightforward extraction task)
+  - **Skills**: None needed
+
+  **Parallelization:**
+  - **Can Run In Parallel**: YES (Wave 1)
+  - **Blocks**: Task 8 (file upload needs server running)
+  - **Blocked By**: None
+
+  **Acceptance Criteria:**
+  - [ ] `src/server.ts` exists and compiles without errors
+  - [ ] `bunx tsc --noEmit src/server.ts` passes
+  - [ ] Server starts with `bun run dev:server` (after Task 3)
+  - [ ] No modifications to any existing files
+
+  **QA Scenarios:**
+
+  ```
+  Scenario: Server starts successfully
+    Tool: Bash
+    Preconditions: Task 3 completed (npm scripts added)
+    Steps:
+      1. Run `bun run dev:server`
+      2. Wait 5 seconds for initialization
+      3. Check WebSocket endpoint: `curl -i http://localhost:3000/health`
+    Expected Result: HTTP 200 OK, server running
+    Evidence: .sisyphus/evidence/task-1-server-start.log
+  ```
+
+  **Commit**: YES
+  - Message: `feat(web): add server.ts entry point for web deployment`
+  - Files: `src/server.ts`
+
+---
+
+- [ ] **2. Create Web Vite Configuration**
+
+  **What to do:**
+  Create `vite.web.config.ts` as a NEW file for web-only builds. This config:
+  - Removes Electron-specific plugins
+  - Points to `src/renderer/web-entry.tsx`
+  - Configures proxy for API/WebSocket to backend
+  - Sets up proper aliases
+
+  **Must NOT do:**
+  - Do NOT modify `electron.vite.config.ts`
+  - Do NOT remove any existing build configuration
+
+  **Files to create:**
+  - `vite.web.config.ts` (NEW)
+
+  **Files to read (for reference):**
+  - `electron.vite.config.ts` (copy alias configuration)
+  - `src/renderer/index.tsx` (understand current entry structure)
+
+  **Configuration template:**
+
+  ```typescript
+  import { defineConfig } from 'vite';
+  import react from '@vitejs/plugin-react';
+  import path from 'path';
+
+  export default defineConfig({
+    plugins: [react()],
+    root: 'src/renderer',
+    build: {
+      outDir: '../../dist/web',
+      emptyOutDir: true,
+      rollupOptions: {
+        input: 'src/renderer/web-entry.tsx',
       },
     },
-  },
-});
-```
-
-**Modify: `package.json` scripts**
-
-```json
-{
-  "scripts": {
-    "dev:web": "vite --config vite.web.config.ts",
-    "dev:server": "tsx watch src/server.ts",
-    "build:web": "vite build --config vite.web.config.ts",
-    "build:server": "tsc -p tsconfig.server.json",
-    "start:web": "npm run build:web && npm run build:server && node dist/server/index.js"
-  }
-}
-```
-
-**New: `tsconfig.server.json`**
-
-```json
-{
-  "extends": "./tsconfig.json",
-  "compilerOptions": {
-    "outDir": "./dist/server",
-    "module": "commonjs",
-    "target": "ES2020",
-    "lib": ["ES2020"],
-    "jsx": "preserve"
-  },
-  "include": [
-    "src/server.ts",
-    "src/webserver/**/*",
-    "src/process/**/*",
-    "src/agent/**/*",
-    "src/worker/**/*",
-    "src/common/**/*",
-    "src/types/**/*"
-  ],
-  "exclude": ["src/renderer/**/*"]
-}
-```
-
-**Verification:**
-
-```bash
-npm run build:web
-npm run build:server
-# Both should complete without errors
-```
-
-**Commit:** `build: configure separate build pipeline for web and server`
-
----
-
-## Phase 1: Remove Electron Dependencies
-
-### Objective
-
-Remove all Electron-specific code from the main process while preserving business logic.
-
-### Duration
-
-**3-4 days** (24-32 hours)
-
-### Deliverables
-
-- [ ] Electron imports removed from main process
-- [ ] Window/Tray/Menu code extracted or removed
-- [ ] Native dialogs replaced with stubs
-- [ ] Electron-specific bridges removed
-- [ ] Main entry point cleaned up
-
-### TODOs
-
-#### Task 1.1: Analyze Electron Usage in index.ts
-
-**What to do:**
-
-- Read `src/index.ts` completely
-- Identify all Electron API usage
-- Categorize by: Keep, Remove, Adapt
-- Document each usage with line numbers
-
-**Files to read:**
-
-- `src/index.ts` (1,062 lines)
-
-**Analysis categories:**
-
-**KEEP (move to server.ts):**
-
-- App initialization logic (lines 770-810)
-- Webserver startup (lines 837-845)
-- Worker initialization (line 860)
-- Process initialization (line 813)
-- Deep link handling (optional - adapt for web)
-
-**REMOVE:**
-
-- BrowserWindow creation (lines 563-728)
-- Tray management (lines 342-541)
-- Menu setup (lines 730, 636)
-- Window event handlers (lines 699-727)
-- DevTools management (lines 706-718)
-- Protocol registration (lines 182-196)
-- Single instance lock (lines 101-146)
-- Auto-updater (lines 644-666)
-
-**ADAPT:**
-
-- Path resolution (use process.cwd() instead of app.getPath())
-- Environment detection (use NODE_ENV instead of app.isPackaged)
-
-**Output:** `docs/migration/index.ts-analysis.md`
-
-**Commit:** `docs: analyze Electron usage in main entry point`
-
----
-
-#### Task 1.2: Create Server Entry Point
-
-**What to do:**
-
-- Create new `src/server.ts` file
-- Extract webserver startup logic from index.ts
-- Add initialization sequence
-- Configure graceful shutdown
-
-**New file: `src/server.ts`**
-
-```typescript
-/**
- * @license
- * Copyright 2025 AionUi (aionui.com)
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import './utils/configureConsoleLog';
-import { initializeProcess } from './process';
-import { startWebServer } from './webserver';
-import { setWebServerInstance } from './process/bridge/webuiBridge';
-import { ProcessConfig } from './process/initStorage';
-import { SERVER_CONFIG } from './webserver/config/constants';
-import { loadShellEnvironmentAsync, logEnvironmentDiagnostics } from './process/utils/shellEnv';
-import { initializeAcpDetector } from './process/bridge';
-import WorkerManage from './process/WorkerManage';
-import * as path from 'path';
-import * as fs from 'fs';
-
-// Global error handlers
-process.on('uncaughtException', (error) => {
-  console.error('[Server] Uncaught exception:', error);
-  if (process.env.NODE_ENV !== 'development') {
-    // TODO: Add error reporting
-  }
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('[Server] Unhandled rejection:', reason);
-});
-
-// Configuration
-const WEBUI_CONFIG_FILE = 'webui.config.json';
-const DESKTOP_WEBUI_PORT_KEY = 'webui.desktop.port';
-
-interface WebUIUserConfig {
-  port?: number | string;
-  allowRemote?: boolean;
-}
-
-const loadUserWebUIConfig = (): { config: WebUIUserConfig; path: string | null } => {
-  try {
-    const userDataPath = process.env.AIONUI_DATA_DIR || path.join(process.cwd(), 'data');
-    const configPath = path.join(userDataPath, WEBUI_CONFIG_FILE);
-    if (!fs.existsSync(configPath)) {
-      return { config: {}, path: configPath };
-    }
-    const raw = fs.readFileSync(configPath, 'utf-8');
-    const parsed = JSON.parse(raw);
-    return { config: parsed as WebUIUserConfig, path: configPath };
-  } catch (error) {
-    return { config: {}, path: null };
-  }
-};
-
-const parsePortValue = (value: unknown): number | null => {
-  if (value === undefined || value === null || value === '') {
-    return null;
-  }
-  const portNumber = typeof value === 'number' ? value : parseInt(String(value), 10);
-  if (!Number.isFinite(portNumber) || portNumber < 1 || portNumber > 65535) {
-    return null;
-  }
-  return portNumber;
-};
-
-const resolveWebUIPort = (config: WebUIUserConfig): number => {
-  const envPort = parsePortValue(process.env.AIONUI_PORT || process.env.PORT);
-  if (envPort) return envPort;
-  const configPort = parsePortValue(config.port);
-  if (configPort) return configPort;
-  return SERVER_CONFIG.DEFAULT_PORT;
-};
-
-const resolveRemoteAccess = (config: WebUIUserConfig): boolean => {
-  const envRemote = process.env.AIONUI_ALLOW_REMOTE === 'true' || process.env.AIONUI_REMOTE === 'true';
-  const configRemote = config.allowRemote === true;
-  return envRemote || configRemote;
-};
-
-/**
- * Main server initialization
- */
-const main = async (): Promise<void> => {
-  console.log('[AionUi Server] Starting...');
-  console.log(`[Server] Node version: ${process.version}`);
-  console.log(`[Server] Environment: ${process.env.NODE_ENV || 'development'}`);
-
-  // Log environment diagnostics
-  logEnvironmentDiagnostics();
-
-  // Initialize process (database, storage, etc.)
-  try {
-    await initializeProcess();
-    console.log('[Server] Process initialized');
-  } catch (error) {
-    console.error('[Server] Failed to initialize process:', error);
-    process.exit(1);
-  }
-
-  // Load configuration
-  const { config: userConfig } = loadUserWebUIConfig();
-  const port = resolveWebUIPort(userConfig);
-  const allowRemote = resolveRemoteAccess(userConfig);
-
-  console.log(`[Server] Configuration: port=${port}, allowRemote=${allowRemote}`);
-
-  // Initialize ACP detector
-  try {
-    await initializeAcpDetector();
-    console.log('[Server] ACP detector initialized');
-  } catch (error) {
-    console.error('[Server] Failed to initialize ACP detector:', error);
-  }
-
-  // Preload shell environment
-  loadShellEnvironmentAsync()
-    .then((shellEnv) => {
-      if (shellEnv.PATH) {
-        process.env.PATH = shellEnv.PATH;
-      }
-      Object.entries(shellEnv).forEach(([key, value]) => {
-        if (key !== 'PATH' && !process.env[key]) {
-          process.env[key] = value;
-        }
-      });
-    })
-    .catch((error) => {
-      console.warn('[Server] Failed to load shell environment:', error);
-    });
-
-  // Start WebServer
-  try {
-    const serverInstance = await startWebServer(port, allowRemote);
-    setWebServerInstance(serverInstance);
-    console.log(`[Server] WebServer started on port ${port}`);
-    console.log(`[Server] Local URL: http://localhost:${port}`);
-    if (allowRemote) {
-      console.log(`[Server] Remote access enabled`);
-    }
-  } catch (error) {
-    console.error('[Server] Failed to start WebServer:', error);
-    process.exit(1);
-  }
-
-  // Graceful shutdown
-  const shutdown = async (signal: string) => {
-    console.log(`[Server] Received ${signal}, shutting down gracefully...`);
-
-    // Stop all workers
-    WorkerManage.clear();
-    console.log('[Server] Workers stopped');
-
-    // Shutdown channel manager
-    try {
-      const { getChannelManager } = await import('@/channels');
-      await getChannelManager().shutdown();
-      console.log('[Server] Channel manager shut down');
-    } catch (error) {
-      console.error('[Server] Error shutting down channel manager:', error);
-    }
-
-    process.exit(0);
-  };
-
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
-
-  console.log('[AionUi Server] Ready!');
-};
-
-// Start server
-main().catch((error) => {
-  console.error('[Server] Fatal error:', error);
-  process.exit(1);
-});
-```
-
-**Verification:**
-
-```bash
-# Test server startup
-npm run build:server
-node dist/server.js
-
-# Expected output:
-# [AionUi Server] Starting...
-# [Server] Process initialized
-# [Server] WebServer started on port 3000
-# [Server] Ready!
-```
-
-**Commit:** `feat: create pure web server entry point`
-
----
-
-#### Task 1.3: Remove Electron-Specific Bridges
-
-**What to do:**
-
-- Remove or adapt bridges that depend on Electron APIs
-- Update bridge index exports
-- Document removed functionality
-
-**Files to modify:**
-
-**1. Remove: `src/process/bridge/windowControlsBridge.ts`**
-
-```bash
-# This file is Electron-only
-git rm src/process/bridge/windowControlsBridge.ts
-```
-
-**2. Remove: `src/process/bridge/notificationBridge.ts`** (or adapt to use Web Notifications API)
-
-**3. Modify: `src/process/bridge/index.ts`**
-Remove exports for removed bridges:
-
-```typescript
-// BEFORE:
-export * from './windowControlsBridge';
-export * from './notificationBridge';
-
-// AFTER:
-// (remove these lines)
-```
-
-**4. Adapt: `src/process/bridge/dialogBridge.ts`**
-Change to return error or stub:
-
-```typescript
-// In dialogBridge.ts
-ipcBridge.dialog.showOpen.provider(() => {
-  // Web version doesn't support native dialogs
-  // Frontend should use <input type="file"> instead
-  throw new Error('Native dialogs not supported in web mode. Use file input element.');
-});
-```
-
-**Verification:**
-
-```bash
-# Build should succeed
-npm run build:server
-
-# Check for any remaining Electron imports
-grep -r "from 'electron'" src/ --include="*.ts" | grep -v ".d.ts"
-# Should return nothing (or only in files marked for removal)
-```
-
-**Commit:** `refactor: remove Electron-specific bridge handlers`
-
----
-
-#### Task 1.4: Update Process Initialization
-
-**What to do:**
-
-- Remove Electron app references from process initialization
-- Replace `app.getPath()` with environment variables or config
-- Update path resolution logic
-
-**Files to modify:**
-
-**`src/process/index.ts`**
-
-```typescript
-// BEFORE:
-import { app } from 'electron';
-const isPackaged = app.isPackaged;
-
-// AFTER:
-const isPackaged = process.env.NODE_ENV === 'production';
-```
-
-**`src/process/initStorage.ts`**
-
-```typescript
-// BEFORE:
-import { app } from 'electron';
-const userDataPath = app.getPath('userData');
-
-// AFTER:
-const userDataPath = process.env.AIONUI_DATA_DIR || path.join(process.cwd(), 'data');
-```
-
-**`src/process/utils.ts`**
-
-```typescript
-// BEFORE:
-import { app } from 'electron';
-return app.getAppPath();
-
-// AFTER:
-return process.cwd();
-```
-
-**Verification:**
-
-```bash
-# Test process initialization
-npm run build:server
-node -e "require('./dist/server/index.js')"
-
-# Should start without Electron errors
-```
-
-**Commit:** `refactor: remove Electron app references from process layer`
-
----
-
-## Phase 2: Frontend Web Mode Adaptation
-
-### Objective
-
-Configure frontend to work in pure web mode using the existing browser adapter.
-
-### Duration
-
-**3-4 days** (24-32 hours)
-
-### Deliverables
-
-- [ ] Frontend builds without Electron dependencies
-- [ ] WebSocket connection established automatically
-- [ ] Authentication flow works in browser
-- [ ] Runtime patches removed or adapted
-- [ ] Environment detection updated
-
-### TODOs
-
-#### Task 2.1: Update Frontend Entry Point
-
-**What to do:**
-
-- Modify `src/renderer/index.ts` to remove Electron assumptions
-- Ensure browser adapter loads correctly
-- Test WebSocket auto-detection
-
-**Files to modify:**
-
-**`src/renderer/index.ts`**
-
-```typescript
-// BEFORE:
-import './bootstrap/runtimePatches'; // May contain Electron-specific code
-
-// AFTER:
-// Remove or conditionally load runtime patches
-// Check if patches are needed for web mode
-```
-
-**Check: `src/renderer/bootstrap/runtimePatches.ts`**
-
-```typescript
-// Review this file for Electron-specific code
-// If it contains Electron APIs, either:
-// 1. Remove it entirely
-// 2. Conditionally load based on environment
-// 3. Create web-safe version
-```
-
-**Verification:**
-
-```bash
-# Build frontend
-npm run build:web
-
-# Should complete without errors
-# Check dist/web/index.html exists
-```
-
-**Commit:** `refactor: update frontend entry for web mode`
-
----
-
-#### Task 2.2: Verify Browser Adapter Integration
-
-**What to do:**
-
-- Ensure `src/adapter/browser.ts` loads correctly
-- Test WebSocket connection
-- Verify message routing
-
-**Test steps:**
-
-```bash
-# 1. Start server
-npm run dev:server
-
-# 2. In another terminal, start frontend dev server
-npm run dev:web
-
-# 3. Open browser to http://localhost:5173
-
-# 4. Check DevTools console:
-# Should see: "[browser] WebSocket connecting to ws://localhost:3000"
-# Should see: "[browser] WebSocket connected"
-
-# 5. Test login
-# Should authenticate via WebSocket
-
-# 6. Test conversation creation
-# Should work via WebSocket messages
-```
-
-**Files to verify:**
-
-- `src/adapter/browser.ts` - Loads automatically (no changes needed)
-- WebSocket connects to correct URL
-- Messages route through bridge correctly
-
-**Debug checklist:**
-
-- [ ] WebSocket connects without errors
-- [ ] Authentication message sent/received
-- [ ] Response streaming works
-- [ ] No CORS errors
-- [ ] Messages formatted correctly
-
-**Commit:** `test: verify browser adapter WebSocket integration`
-
----
-
-#### Task 2.3: Update HTML Entry Point
-
-**What to do:**
-
-- Modify `src/renderer/index.html` for web mode
-- Remove Electron-specific meta tags if any
-- Ensure correct script loading
-
-**Files to modify:**
-
-**`src/renderer/index.html`**
-
-```html
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="AionUi - AI Agent Interface" />
-    <!-- Remove any Electron-specific meta tags -->
-    <title>AionUi Web</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="./index.tsx"></script>
-  </body>
-</html>
-```
-
-**Verification:**
-
-```bash
-# Build and check output
-cat dist/web/index.html
-
-# Should contain correct paths
-```
-
-**Commit:** `chore: update HTML entry for web mode`
-
----
-
-#### Task 2.4: Remove window.electronAPI References
-
-**What to do:**
-
-- Search for all `window.electronAPI` usage
-- Remove or replace with bridge calls
-- Update type definitions
-
-**Search command:**
-
-```bash
-grep -r "window.electronAPI" src/renderer --include="*.ts" --include="*.tsx"
-```
-
-**Expected results:** Should be minimal or none, since renderer should use `ipcBridge`
-
-**If found, replace:**
-
-```typescript
-// BEFORE:
-window.electronAPI.webuiResetPassword();
-
-// AFTER:
-// Use the bridge adapter instead
-// The bridge automatically routes through WebSocket
-```
-
-**Verification:**
-
-```bash
-# Should return no results
-grep -r "window.electronAPI" src/renderer --include="*.ts" --include="*.tsx"
-```
-
-**Commit:** `refactor: remove window.electronAPI references`
-
----
-
-## Phase 3: File Handling Web Migration
-
-### Objective
-
-Replace Electron's native file dialogs with web-compatible file handling.
-
-### Duration
-
-**2-3 days** (16-24 hours)
-
-### Deliverables
-
-- [ ] File upload component created
-- [ ] Directory upload supported (where browser allows)
-- [ ] File download functionality works
-- [ ] Drag-and-drop adapted for web
-- [ ] Workspace file operations tested
-
-### TODOs
-
-#### Task 3.1: Create FileUpload Component
-
-**What to do:**
-
-- Create reusable file upload component
-- Support single/multiple files
-- Support directory selection (webkitdirectory)
-- Integrate with existing upload logic
-
-**New file: `src/renderer/components/FileUpload/index.tsx`**
-
-```typescript
-import React, { useRef, useCallback } from 'react';
-import { apiClient } from '../../services/apiClient';
-
-interface FileUploadProps {
-  workspace: string;
-  onUploadComplete?: (filePaths: string[]) => void;
-  onUploadProgress?: (progress: number) => void;
-  multiple?: boolean;
-  directory?: boolean;
-  accept?: string;
-  children?: React.ReactNode;
-}
-
-export const FileUpload: React.FC<FileUploadProps> = ({
-  workspace,
-  onUploadComplete,
-  onUploadProgress,
-  multiple = true,
-  directory = false,
-  accept,
-  children,
-}) => {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const handleClick = useCallback(() => {
-    inputRef.current?.click();
-  }, []);
-
-  const handleFileSelect = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
-
-    try {
-      // Upload files via HTTP (multipart)
-      const formData = new FormData();
-      Array.from(files).forEach((file) => {
-        formData.append('files', file);
-      });
-      formData.append('workspace', workspace);
-
-      const response = await fetch('/api/files/upload', {
-        method: 'POST',
-        body: formData,
-        headers: {
-          'Authorization': `Bearer ${apiClient.getToken()}`,
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './src'),
+        '@renderer': path.resolve(__dirname, './src/renderer'),
+        '@common': path.resolve(__dirname, './src/common'),
+        '@process': path.resolve(__dirname, './src/process'),
+      },
+    },
+    server: {
+      port: 5173,
+      proxy: {
+        '/api': 'http://localhost:3000',
+        '/ws': {
+          target: 'ws://localhost:3000',
+          ws: true,
         },
-      });
+      },
+    },
+  });
+  ```
 
-      if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`);
-      }
+  **Recommended Agent Profile:**
+  - **Category**: `quick`
+  - **Skills**: None needed
 
-      const result = await response.json();
-      onUploadComplete?.(result.filePaths);
-    } catch (error) {
-      console.error('Upload error:', error);
-      // Show error notification
+  **Parallelization:**
+  - **Can Run In Parallel**: YES (Wave 1)
+  - **Blocks**: Task 5 (web entry needs this config)
+  - **Blocked By**: None
+
+  **Acceptance Criteria:**
+  - [ ] `vite.web.config.ts` exists and is valid
+  - [ ] `bunx tsc --noEmit vite.web.config.ts` passes
+  - [ ] Config uses same aliases as existing config
+
+  **Commit**: YES
+  - Message: `build: add vite.web.config.ts for web builds`
+  - Files: `vite.web.config.ts`
+
+---
+
+- [ ] **3. Add npm Scripts**
+
+  **What to do:**
+  Add new npm scripts to `package.json` for web development. This is one of the few modifications to existing files - keep it minimal.
+
+  Scripts to add:
+  - `dev:web` - Start Vite dev server for web
+  - `dev:server` - Start Node.js server
+  - `build:web` - Build web frontend
+  - `build:server` - Build server
+  - `start:web` - Production web mode
+
+  **Must NOT do:**
+  - Do NOT remove or modify existing scripts
+  - Do NOT change any dependencies
+  - Keep modification to scripts section only
+
+  **Files to modify:**
+  - `package.json` (scripts section only)
+
+  **Scripts to add:**
+
+  ```json
+  {
+    "scripts": {
+      "dev:web": "vite --config vite.web.config.ts",
+      "dev:server": "tsx watch src/server.ts",
+      "build:web": "vite build --config vite.web.config.ts",
+      "build:server": "tsc -p tsconfig.server.json",
+      "start:web": "bun run build:web && bun run build:server && node dist/server/server.js"
     }
+  }
+  ```
 
-    // Reset input
-    event.target.value = '';
-  }, [workspace, onUploadComplete]);
+  **Recommended Agent Profile:**
+  - **Category**: `quick`
+  - **Skills**: None needed
 
-  return (
-    <>
-      <div onClick={handleClick} style={{ cursor: 'pointer' }}>
-        {children || <button>Select Files</button>}
-      </div>
-      <input
-        ref={inputRef}
-        type="file"
-        multiple={multiple}
-        {...(directory ? { webkitdirectory: '' } : {})}
-        accept={accept}
-        style={{ display: 'none' }}
-        onChange={handleFileSelect}
-      />
-    </>
+  **Parallelization:**
+  - **Can Run In Parallel**: YES (Wave 1)
+  - **Blocks**: Task 1, Task 6 (needs these scripts)
+  - **Blocked By**: None
+
+  **Acceptance Criteria:**
+  - [ ] All 5 new scripts added to package.json
+  - [ ] Existing scripts unchanged
+  - [ ] `bun run dev:server` starts the server (after Task 1)
+  - [ ] `bun run dev:web` starts Vite dev server (after Task 5)
+
+  **QA Scenarios:**
+
+  ```
+  Scenario: Web development scripts work
+    Tool: Bash
+    Preconditions: Tasks 1, 2, 5 completed
+    Steps:
+      1. Terminal 1: `bun run dev:server` (wait for "Server started")
+      2. Terminal 2: `bun run dev:web` (wait for Vite ready)
+      3. Terminal 3: `curl http://localhost:5173`
+    Expected Result: HTML response from Vite dev server
+    Evidence: .sisyphus/evidence/task-3-scripts-work.log
+  ```
+
+  **Commit**: YES
+  - Message: `chore: add npm scripts for web development`
+  - Files: `package.json`
+
+---
+
+- [ ] **4. Verify WebSocket Infrastructure**
+
+  **What to do:**
+  Verify the existing WebSocket infrastructure works correctly. NO code changes - just testing and documentation.
+
+  Test:
+  1. Start existing WebUI mode: `bun run webui`
+  2. Open browser to http://localhost:3000
+  3. Verify WebSocket connection
+  4. Test basic functionality (login, create conversation, send message)
+
+  **Must NOT do:**
+  - Do NOT modify any WebSocket code
+  - Do NOT change browser.ts or WebSocketManager.ts
+  - This is verification only, not implementation
+
+  **Files to read:**
+  - `src/adapter/browser.ts` (verify auto-detection logic)
+  - `src/webserver/websocket/WebSocketManager.ts` (verify server-side)
+
+  **Acceptance Criteria:**
+  - [ ] WebSocket connects successfully in WebUI mode
+  - [ ] Messages route correctly through adapter
+  - [ ] Authentication works via WebSocket
+  - [ ] Document any issues found
+
+  **QA Scenarios:**
+
+  ```
+  Scenario: WebSocket infrastructure functional
+    Tool: Bash + Browser DevTools
+    Steps:
+      1. `bun run webui`
+      2. Open http://localhost:3000
+      3. DevTools → Network → WS tab
+      4. Verify WebSocket connection established
+      5. Login with default credentials
+      6. Create a conversation and send a message
+    Expected Result: WebSocket shows frames, message appears in conversation
+    Evidence: .sisyphus/evidence/task-4-websocket-test.png
+  ```
+
+  **Commit**: NO (verification task, no code changes)
+
+---
+
+- [ ] **5. Create Web Renderer Entry**
+
+  **What to do:**
+  Create `src/renderer/web-entry.tsx` as a NEW file that:
+  1. Imports `browser.ts` adapter (auto-detects WebSocket)
+  2. Renders the same App component
+  3. Sets up the same routes and providers
+
+  **Key insight**: The existing `src/renderer/index.tsx` does:
+
+  ```typescript
+  import '../adapter/main'; // Electron adapter
+  ```
+
+  The web entry will do:
+
+  ```typescript
+  import '../adapter/browser'; // WebSocket adapter (auto-detects!)
+  ```
+
+  **Must NOT do:**
+  - Do NOT modify `src/renderer/index.tsx`
+  - Do NOT change any existing renderer components
+
+  **Files to create:**
+  - `src/renderer/web-entry.tsx` (NEW, ~30 lines)
+
+  **Files to read (for reference):**
+  - `src/renderer/index.tsx` (copy structure)
+  - `src/renderer/App.tsx` (understand root component)
+  - `src/adapter/browser.ts` (confirm auto-detection)
+
+  **Implementation template:**
+
+  ```typescript
+  // src/renderer/web-entry.tsx
+  import '../adapter/browser';  // Auto-detects WebSocket mode
+  import { createRoot } from 'react-dom/client';
+  import { BrowserRouter } from 'react-router-dom';
+  import App from './App';
+  import './i18n';  // Same i18n setup
+
+  const container = document.getElementById('root');
+  if (!container) throw new Error('Root element not found');
+
+  const root = createRoot(container);
+  root.render(
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
   );
-};
-```
+  ```
 
-**Verification:**
+  **Recommended Agent Profile:**
+  - **Category**: `quick`
+  - **Skills**: None needed
 
-```typescript
-// Test component renders
-import { FileUpload } from './components/FileUpload';
+  **Parallelization:**
+  - **Can Run In Parallel**: YES (Wave 2)
+  - **Blocks**: Task 6 (build needs entry point)
+  - **Blocked By**: Task 2 (needs vite config)
 
-// In a component:
-<FileUpload
-  workspace="/path/to/workspace"
-  onUploadComplete={(paths) => console.log('Uploaded:', paths)}
->
-  <button>Upload Files</button>
-</FileUpload>
-```
+  **Acceptance Criteria:**
+  - [ ] `src/renderer/web-entry.tsx` exists
+  - [ ] Imports browser.ts adapter
+  - [ ] Renders App component
+  - [ ] TypeScript compiles without errors
 
-**Commit:** `feat: create FileUpload component for web mode`
-
----
-
-#### Task 3.2: Create HTTP File Upload Endpoint
-
-**What to do:**
-
-- Add Express route for file uploads
-- Handle multipart/form-data
-- Save files to workspace
-- Return file paths
-
-**Modify: `src/webserver/routes/apiRoutes.ts`**
-
-```typescript
-import multer from 'multer';
-import path from 'path';
-import fs from 'fs-extra';
-
-const upload = multer({ storage: multer.memoryStorage() });
-
-// File upload endpoint
-router.post('/files/upload', authenticate, upload.array('files'), async (req, res) => {
-  try {
-    const files = req.files as Express.Multer.File[];
-    const { workspace } = req.body;
-
-    if (!workspace || !fs.existsSync(workspace)) {
-      return res.status(400).json({ error: 'Invalid workspace' });
-    }
-
-    const uploadedPaths: string[] = [];
-
-    for (const file of files) {
-      const filePath = path.join(workspace, file.originalname);
-      await fs.writeFile(filePath, file.buffer);
-      uploadedPaths.push(filePath);
-    }
-
-    res.json({ success: true, filePaths: uploadedPaths });
-  } catch (error) {
-    console.error('Upload error:', error);
-    res.status(500).json({ error: 'Upload failed' });
-  }
-});
-```
-
-**Verification:**
-
-```bash
-# Test upload endpoint
-curl -X POST http://localhost:3000/api/files/upload \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "files=@test.txt" \
-  -F "workspace=/path/to/workspace"
-
-# Should return: {"success":true,"filePaths":[...]}
-```
-
-**Commit:** `feat: add HTTP file upload endpoint`
+  **Commit**: YES
+  - Message: `feat(web): add web renderer entry point`
+  - Files: `src/renderer/web-entry.tsx`
 
 ---
 
-#### Task 3.3: Adapt Workspace Drag-and-Drop
+- [ ] **6. Configure Web Build Pipeline**
 
-**What to do:**
+  **What to do:**
+  Create `tsconfig.server.json` and verify the complete build pipeline works.
 
-- Modify drag-drop handlers to work without Electron paths
-- Use File API for dropped files
-- Upload files via HTTP
+  Steps:
+  1. Create `tsconfig.server.json` for server compilation
+  2. Verify `bun run build:web` works
+  3. Verify `bun run build:server` works
+  4. Test production build with `bun run start:web`
 
-**Modify: `src/renderer/pages/conversation/workspace/hooks/useWorkspaceDragImport.ts`**
+  **Files to create:**
+  - `tsconfig.server.json` (NEW)
 
-```typescript
-// BEFORE (Electron):
-const filePath = window.electronAPI?.getPathForFile(file);
+  **Configuration template:**
 
-// AFTER (Web):
-const handleDrop = useCallback(
-  async (event: DragEvent) => {
-    event.preventDefault();
+  ```json
+  {
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+      "outDir": "./dist/server",
+      "module": "commonjs",
+      "target": "ES2020",
+      "lib": ["ES2020"],
+      "jsx": "preserve"
+    },
+    "include": [
+      "src/server.ts",
+      "src/webserver/**/*",
+      "src/process/**/*",
+      "src/agent/**/*",
+      "src/worker/**/*",
+      "src/common/**/*",
+      "src/types/**/*"
+    ],
+    "exclude": ["src/renderer/**/*"]
+  }
+  ```
 
-    const items = event.dataTransfer?.items;
-    if (!items) return;
+  **Recommended Agent Profile:**
+  - **Category**: `quick`
+  - **Skills**: None needed
 
-    const files: File[] = [];
+  **Parallelization:**
+  - **Can Run In Parallel**: NO (Wave 2 sequential)
+  - **Blocks**: Task 7 (needs build to test)
+  - **Blocked By**: Tasks 1, 2, 5
 
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item.kind === 'file') {
-        const file = item.getAsFile();
-        if (file) files.push(file);
-      }
-    }
+  **Acceptance Criteria:**
+  - [ ] `tsconfig.server.json` created and valid
+  - [ ] `bun run build:web` completes without errors
+  - [ ] `bun run build:server` completes without errors
+  - [ ] Production build starts successfully
 
-    // Upload files via HTTP
-    if (files.length > 0) {
-      const formData = new FormData();
-      files.forEach((file) => formData.append('files', file));
-      formData.append('workspace', workspace);
+  **QA Scenarios:**
 
-      const response = await fetch('/api/files/upload', {
-        method: 'POST',
-        body: formData,
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
+  ```
+  Scenario: Production build works
+    Tool: Bash
+    Steps:
+      1. Run `bun run build:web`
+      2. Run `bun run build:server`
+      3. Check dist/ directory exists with both web/ and server/
+      4. Run `bun run start:web`
+      5. Wait 10 seconds
+      6. Curl: `curl http://localhost:3000`
+    Expected Result: HTML served, server running
+    Evidence: .sisyphus/evidence/task-6-production-build.log
+  ```
 
-      const result = await response.json();
-      // Handle uploaded files
-    }
-  },
-  [workspace]
-);
-```
-
-**Verification:**
-
-- Drag files from desktop to workspace
-- Files should upload successfully
-- Appear in workspace file list
-
-**Commit:** `refactor: adapt drag-drop for web file handling`
+  **Commit**: YES
+  - Message: `build: configure server TypeScript and build pipeline`
+  - Files: `tsconfig.server.json`
 
 ---
 
-#### Task 3.4: Implement File Download
+- [ ] **7. Test Browser Adapter Auto-Detection**
 
-**What to do:**
+  **What to do:**
+  Verify that `browser.ts` correctly auto-detects web mode and uses WebSocket.
 
-- Create download function for workspace files
-- Use fetch + Blob for browser download
+  Test plan:
+  1. Start server: `bun run dev:server`
+  2. Start web frontend: `bun run dev:web`
+  3. Open browser DevTools
+  4. Check console for WebSocket connection messages
+  5. Verify no `window.electronAPI` errors
+  6. Test login and conversation creation
 
-**New: `src/renderer/utils/download.ts`**
+  **Files to read:**
+  - `src/adapter/browser.ts` lines 20-50 (auto-detection logic)
 
-```typescript
-export async function downloadFile(filePath: string, fileName?: string): Promise<void> {
-  try {
-    // Get file via WebSocket or HTTP
-    const response = await fetch(`/api/files/download?path=${encodeURIComponent(filePath)}`, {
-      headers: { Authorization: `Bearer ${getToken()}` },
-    });
+  **Acceptance Criteria:**
+  - [ ] Browser connects via WebSocket (not Electron IPC)
+  - [ ] No errors in browser console
+  - [ ] Login works
+  - [ ] Messages route through WebSocket
 
-    if (!response.ok) {
-      throw new Error('Download failed');
-    }
+  **QA Scenarios:**
 
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
+  ```
+  Scenario: Browser adapter uses WebSocket
+    Tool: Browser DevTools
+    Preconditions: Tasks 1, 3, 5, 6 completed
+    Steps:
+      1. Start server and web dev server
+      2. Open http://localhost:5173
+      3. DevTools → Console: check for "WebSocket connected"
+      4. DevTools → Network → WS: verify ws:// connection
+      5. Login with default credentials
+      6. Create conversation and send "Hello"
+    Expected Result: WebSocket frames visible, message appears, no IPC errors
+    Evidence: .sisyphus/evidence/task-7-websocket-auto-detect.png
+  ```
 
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = fileName || filePath.split('/').pop() || 'download';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    window.URL.revokeObjectURL(url);
-  } catch (error) {
-    console.error('Download error:', error);
-    throw error;
-  }
-}
-```
-
-**Add endpoint:**
-
-```typescript
-// src/webserver/routes/apiRoutes.ts
-router.get('/files/download', authenticate, async (req, res) => {
-  const { path: filePath } = req.query;
-
-  if (!filePath || typeof filePath !== 'string') {
-    return res.status(400).json({ error: 'Path required' });
-  }
-
-  // Security: ensure path is within allowed directories
-  // ... validation logic ...
-
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: 'File not found' });
-  }
-
-  res.download(filePath);
-});
-```
-
-**Commit:** `feat: implement file download for web mode`
+  **Commit**: NO (verification only)
 
 ---
 
-## Phase 4: Testing & Quality Assurance
+- [ ] **8. Add File Upload Endpoints**
 
-### Objective
+  **What to do:**
+  Create new file upload endpoints for web mode. The existing `dialogBridge.ts` uses Electron's native dialogs which don't work in browsers.
 
-Comprehensive testing of all functionality in web mode.
+  Create:
+  1. `src/webserver/routes/fileUploadRoutes.ts` - Express routes for file upload/download
+  2. Update `src/webserver/routes/apiRoutes.ts` to register new routes
 
-### Duration
+  **Why this is safe:**
+  - Adding new routes is non-breaking
+  - Existing dialogBridge.ts continues to work for Electron
+  - Web mode uses HTTP upload instead of IPC
 
-**4-5 days** (32-40 hours)
+  **Must NOT do:**
+  - Do NOT modify `src/process/bridge/dialogBridge.ts`
+  - Do NOT remove dialog functionality
+  - Only ADD new routes
 
-### Deliverables
+  **Files to create:**
+  - `src/webserver/routes/fileUploadRoutes.ts` (NEW, ~80 lines)
 
-- [ ] All IPC channels tested via WebSocket
-- [ ] Authentication flow verified
-- [ ] File operations tested
-- [ ] AI agents tested (Gemini, ACP, Codex)
-- [ ] Extensions system tested
-- [ ] Cron jobs tested
-- [ ] Performance benchmarks
+  **Files to modify:**
+  - `src/webserver/routes/apiRoutes.ts` (ADD route registration, ~3 lines)
 
-### TODOs
+  **Implementation outline:**
 
-#### Task 4.1: Create WebSocket Test Suite
+  ```typescript
+  // src/webserver/routes/fileUploadRoutes.ts
+  import { Router } from 'express';
+  import multer from 'multer';
+  import path from 'path';
+  import fs from 'fs';
 
-**What to do:**
+  const upload = multer({ dest: 'uploads/temp/' });
+  const router = Router();
 
-- Create automated tests for WebSocket communication
-- Test all IPC channel categories
-- Verify message format integrity
-
-**New file: `tests/integration/websocket-channels.test.ts`**
-
-```typescript
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { WebSocket } from 'ws';
-import { startTestServer } from './test-server';
-
-describe('WebSocket IPC Channels', () => {
-  let server: any;
-  let ws: WebSocket;
-  let authToken: string;
-
-  beforeAll(async () => {
-    server = await startTestServer();
-    authToken = await server.getAuthToken();
-
-    ws = new WebSocket(`ws://localhost:${server.port}`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    });
-
-    await new Promise((resolve) => ws.once('open', resolve));
+  // Upload file
+  router.post('/upload', upload.single('file'), async (req, res) => {
+    // Save to workspace, return file metadata
   });
 
-  afterAll(async () => {
-    ws.close();
-    await server.stop();
+  // Download file
+  router.get('/download/:fileId', async (req, res) => {
+    // Stream file to response
   });
 
-  describe('Conversation Channels', () => {
-    it('should create conversation', async () => {
-      const message = {
-        name: 'create-conversation',
-        data: {
-          type: 'gemini',
-          name: 'Test Conversation',
-          model: {
-            /* ... */
-          },
-          extra: { workspace: '/tmp/test' },
-        },
-      };
+  export default router;
+  ```
 
-      const response = await sendAndWait(ws, message);
-      expect(response.data).toHaveProperty('id');
-      expect(response.data.name).toBe('Test Conversation');
-    });
+  **Recommended Agent Profile:**
+  - **Category**: `unspecified-high`
+  - **Skills**: None needed
 
-    it('should send message and receive stream', async () => {
-      const messages: any[] = [];
+  **Parallelization:**
+  - **Can Run In Parallel**: YES (Wave 3)
+  - **Blocks**: Task 9 (UI needs endpoints)
+  - **Blocked By**: Task 1 (needs server running)
 
-      ws.on('message', (data) => {
-        const msg = JSON.parse(data.toString());
-        if (msg.name === 'chat.response.stream') {
-          messages.push(msg.data);
-        }
-      });
+  **Acceptance Criteria:**
+  - [ ] File upload endpoint works (POST /api/upload)
+  - [ ] File download endpoint works (GET /api/download/:id)
+  - [ ] Files saved to correct workspace location
+  - [ ] Existing dialogBridge.ts untouched
 
-      ws.send(
-        JSON.stringify({
-          name: 'chat.send.message',
-          data: {
-            conversation_id: 'test-conv-id',
-            input: 'Hello!',
-            msg_id: 'test-msg-1',
-          },
-        })
-      );
+  **QA Scenarios:**
 
-      // Wait for streaming to complete
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+  ```
+  Scenario: File upload via HTTP endpoint
+    Tool: Bash (curl)
+    Steps:
+      1. Create test file: `echo "test content" > /tmp/test.txt`
+      2. Upload: `curl -F "file=@/tmp/test.txt" http://localhost:3000/api/upload`
+      3. Verify response contains file metadata
+      4. Download: `curl -O http://localhost:3000/api/download/{fileId}`
+    Expected Result: Upload returns metadata, download returns file content
+    Evidence: .sisyphus/evidence/task-8-file-upload.log
+  ```
 
-      expect(messages.length).toBeGreaterThan(0);
-      expect(messages[messages.length - 1].type).toBe('finish');
-    });
-  });
+  **Commit**: YES
+  - Message: `feat(web): add file upload/download HTTP endpoints`
+  - Files: `src/webserver/routes/fileUploadRoutes.ts`, `src/webserver/routes/apiRoutes.ts`
 
-  describe('File System Channels', () => {
-    it('should read file', async () => {
-      const response = await sendAndWait(ws, {
-        name: 'get-file-by-dir',
-        data: { dir: '/tmp', root: '/tmp' },
-      });
+---
 
-      expect(Array.isArray(response.data)).toBe(true);
-    });
-  });
+- [ ] **9. Create File Upload UI Components**
 
-  // ... more tests for each channel category
-});
+  **What to do:**
+  Create web-specific file upload components that use HTTP endpoints instead of Electron dialogs.
 
-function sendAndWait(ws: WebSocket, message: any): Promise<any> {
-  return new Promise((resolve) => {
-    const handler = (data: any) => {
-      const response = JSON.parse(data.toString());
-      if (response.name === message.name) {
-        ws.off('message', handler);
-        resolve(response);
-      }
+  Create:
+  1. `src/renderer/components/web/FileUploadButton.tsx` - Hidden file input + upload logic
+  2. `src/renderer/components/web/DragDropZone.tsx` - Drag-and-drop file upload
+  3. Hook: `src/renderer/hooks/useFileUpload.ts` - Upload state management
+
+  **Integration approach:**
+  - Detect web mode at runtime
+  - Use web components when `!window.electronAPI`
+  - Keep existing components for Electron mode
+
+  **Must NOT do:**
+  - Do NOT modify existing file picker components
+  - Do NOT change dialogBridge usage in existing code
+  - Only ADD new components
+
+  **Files to create:**
+  - `src/renderer/components/web/FileUploadButton.tsx`
+  - `src/renderer/components/web/DragDropZone.tsx`
+  - `src/renderer/hooks/useFileUpload.ts`
+
+  **Implementation outline:**
+
+  ```typescript
+  // src/renderer/components/web/FileUploadButton.tsx
+  import { useRef } from 'react';
+  import { useFileUpload } from '@/renderer/hooks/useFileUpload';
+
+  export function FileUploadButton({ onUpload }: { onUpload: (files: File[]) => void }) {
+    const inputRef = useRef<HTMLInputElement>(null);
+    const { upload, isUploading } = useFileUpload();
+
+    const handleChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files || []);
+      const uploaded = await Promise.all(files.map(upload));
+      onUpload(uploaded);
     };
-    ws.on('message', handler);
-    ws.send(JSON.stringify(message));
-  });
-}
-```
 
-**Verification:**
-
-```bash
-npm run test:integration
-# All WebSocket channel tests should pass
-```
-
-**Commit:** `test: add WebSocket IPC channel test suite`
-
----
-
-#### Task 4.2: Test All Agent Types
-
-**What to do:**
-
-- Test Gemini agent via WebSocket
-- Test ACP agent via WebSocket
-- Test Codex agent via WebSocket
-- Verify streaming works for each
-
-**Test checklist:**
-
-- [ ] Create Gemini conversation
-- [ ] Send message to Gemini
-- [ ] Receive streaming response
-- [ ] Test file upload with Gemini
-- [ ] Create ACP conversation
-- [ ] Send message to ACP
-- [ ] Test Codex agent
-- [ ] Test agent health checks
-
-**Manual test script:**
-
-```bash
-# Start server
-npm run dev:server
-
-# Open browser
-# 1. Login
-# 2. Create Gemini conversation
-# 3. Send test message
-# 4. Verify streaming response appears
-# 5. Upload file to workspace
-# 6. Test file reference in message
-# 7. Create ACP conversation
-# 8. Repeat tests
-```
-
-**Commit:** `test: verify all AI agents work via WebSocket`
-
----
-
-#### Task 4.3: Test File Operations End-to-End
-
-**What to do:**
-
-- Test file upload via HTTP
-- Test file download
-- Test workspace file operations
-- Test drag-and-drop
-
-**Test scenarios:**
-
-1. Upload single file
-2. Upload multiple files
-3. Upload directory (if supported)
-4. Download file
-5. Delete file
-6. Rename file
-7. Drag files from desktop
-
-**Verification:**
-
-- All operations complete without errors
-- Files appear in workspace correctly
-- File content preserved
-- Permissions correct
-
-**Commit:** `test: verify file operations in web mode`
-
----
-
-#### Task 4.4: Performance Testing
-
-**What to do:**
-
-- Measure WebSocket connection latency
-- Test concurrent connections
-- Measure message throughput
-- Test large file uploads
-
-**New file: `tests/performance/websocket.perf.ts`**
-
-```typescript
-import { describe, it, expect } from 'vitest';
-import WebSocket from 'ws';
-
-describe('WebSocket Performance', () => {
-  it('should handle 100 concurrent connections', async () => {
-    const connections: WebSocket[] = [];
-
-    for (let i = 0; i < 100; i++) {
-      const ws = new WebSocket('ws://localhost:3000');
-      await new Promise((resolve, reject) => {
-        ws.once('open', resolve);
-        ws.once('error', reject);
-      });
-      connections.push(ws);
-    }
-
-    expect(connections.length).toBe(100);
-    connections.forEach((ws) => ws.close());
-  });
-
-  it('should have <50ms latency for messages', async () => {
-    const ws = new WebSocket('ws://localhost:3000');
-    await new Promise((resolve) => ws.once('open', resolve));
-
-    const start = Date.now();
-
-    ws.send(
-      JSON.stringify({
-        name: 'system.info',
-        data: {},
-      })
+    return (
+      <>
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          onChange={handleChange}
+          style={{ display: 'none' }}
+        />
+        <button onClick={() => inputRef.current?.click()} disabled={isUploading}>
+          {isUploading ? 'Uploading...' : 'Upload Files'}
+        </button>
+      </>
     );
+  }
+  ```
 
-    const response = await new Promise((resolve) => {
-      ws.once('message', (data) => {
-        resolve(JSON.parse(data.toString()));
-      });
-    });
+  **Recommended Agent Profile:**
+  - **Category**: `visual-engineering`
+  - **Skills**: None needed
 
-    const latency = Date.now() - start;
-    expect(latency).toBeLessThan(50);
+  **Parallelization:**
+  - **Can Run In Parallel**: YES (Wave 3)
+  - **Blocks**: Task 10 (needs components)
+  - **Blocked By**: Task 8 (needs endpoints)
 
-    ws.close();
-  });
-});
-```
+  **Acceptance Criteria:**
+  - [ ] FileUploadButton component works
+  - [ ] DragDropZone component works
+  - [ ] useFileUpload hook manages upload state
+  - [ ] Components styled with Arco Design
+  - [ ] No modifications to existing components
 
-**Commit:** `test: add WebSocket performance benchmarks`
+  **QA Scenarios:**
 
----
+  ```
+  Scenario: Web file upload UI works
+    Tool: Playwright
+    Preconditions: Tasks 1, 3, 5, 6, 8 completed
+    Steps:
+      1. Start server and web dev server
+      2. Open http://localhost:5173
+      3. Login
+      4. Navigate to workspace
+      5. Click "Upload Files" button
+      6. Select test file
+      7. Verify upload progress and completion
+    Expected Result: File uploads, appears in workspace
+    Evidence: .sisyphus/evidence/task-9-file-upload-ui.png
+  ```
 
-## Phase 5: Deployment & Documentation
-
-### Objective
-
-Prepare production deployment configuration and documentation.
-
-### Duration
-
-**2-3 days** (16-24 hours)
-
-### Deliverables
-
-- [ ] Docker configuration created
-- [ ] Docker Compose setup
-- [ ] Environment documentation
-- [ ] Deployment guide
-- [ ] Migration guide from Electron
-
-### TODOs
-
-#### Task 5.1: Create Docker Configuration
-
-**What to do:**
-
-- Create Dockerfile for server
-- Create Dockerfile for web (static files)
-- Configure multi-stage builds
-- Optimize image size
-
-**New file: `docker/Dockerfile.server`**
-
-```dockerfile
-# Build stage
-FROM node:22-alpine AS builder
-
-WORKDIR /app
-
-# Install dependencies
-COPY package*.json ./
-RUN npm ci
-
-# Copy source
-COPY . .
-
-# Build
-RUN npm run build:server
-
-# Production stage
-FROM node:22-alpine
-
-WORKDIR /app
-
-# Install production dependencies only
-COPY package*.json ./
-RUN npm ci --production && npm cache clean --force
-
-# Copy built files
-COPY --from=builder /app/dist ./dist
-
-# Copy worker files
-COPY --from=builder /app/src/worker ./worker
-
-# Create data directory
-RUN mkdir -p /app/data /app/workspace
-
-# Environment
-ENV NODE_ENV=production
-ENV AIONUI_DATA_DIR=/app/data
-ENV PORT=3000
-
-EXPOSE 3000
-
-VOLUME ["/app/data", "/app/workspace"]
-
-HEALTHCHECK --interval=30s --timeout=3s \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
-
-CMD ["node", "dist/server/index.js"]
-```
-
-**New file: `docker/Dockerfile.web`**
-
-```dockerfile
-# Build stage
-FROM node:22-alpine AS builder
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm ci
-
-COPY . .
-RUN npm run build:web
-
-# Serve with nginx
-FROM nginx:alpine
-
-COPY --from=builder /app/dist/web /usr/share/nginx/html
-COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
-
-EXPOSE 80
-
-CMD ["nginx", "-g", "daemon off;"]
-```
-
-**New file: `docker/nginx.conf`**
-
-```nginx
-server {
-    listen 80;
-    server_name localhost;
-    root /usr/share/nginx/html;
-    index index.html;
-
-    # SPA routing
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # API proxy
-    location /api {
-        proxy_pass http://server:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    # WebSocket proxy
-    location /ws {
-        proxy_pass http://server:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-    }
-}
-```
-
-**Commit:** `docker: add production Docker configuration`
+  **Commit**: YES
+  - Message: `feat(web): add file upload UI components for web mode`
+  - Files: `src/renderer/components/web/`, `src/renderer/hooks/useFileUpload.ts`
 
 ---
 
-#### Task 5.2: Create Docker Compose Setup
+- [ ] **10. Integrate File Upload in Web Mode**
 
-**What to do:**
+  **What to do:**
+  Modify file picker entry points to use web components when in browser mode.
 
-- Create docker-compose.yml
-- Configure services (server, web, reverse proxy)
-- Set up volumes for persistence
-- Configure environment variables
+  Approach:
+  1. Identify where dialogBridge is used for file selection
+  2. Create a wrapper component that detects mode
+  3. Use web upload in browser, dialogBridge in Electron
 
-**New file: `docker-compose.yml`**
+  **Files to modify:**
+  - Identify and update 2-3 specific file picker usages
+  - Keep changes minimal and localized
 
-```yaml
-version: '3.8'
+  **Detection pattern:**
 
-services:
-  aionui-server:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.server
-    container_name: aionui-server
-    restart: unless-stopped
-    ports:
-      - '3000:3000'
-    volumes:
-      - aionui-data:/app/data
-      - aionui-workspace:/app/workspace
-    environment:
-      - NODE_ENV=production
-      - AIONUI_DATA_DIR=/app/data
-      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
-      - PORT=3000
-    healthcheck:
-      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:3000/api/health']
-      interval: 30s
-      timeout: 10s
-      retries: 3
+  ```typescript
+  const isElectron = !!window.electronAPI;
 
-  aionui-web:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.web
-    container_name: aionui-web
-    restart: unless-stopped
-    ports:
-      - '80:80'
-    depends_on:
-      - aionui-server
-    environment:
-      - API_URL=http://aionui-server:3000
+  {isElectron ? (
+    <ExistingFilePicker onSelect={handleSelect} />
+  ) : (
+    <FileUploadButton onUpload={handleUpload} />
+  )}
+  ```
 
-  # Optional: Nginx reverse proxy with SSL
-  nginx:
-    image: nginx:alpine
-    container_name: aionui-nginx
-    restart: unless-stopped
-    ports:
-      - '443:443'
-    volumes:
-      - ./docker/nginx-ssl.conf:/etc/nginx/conf.d/default.conf
-      - ./ssl:/etc/nginx/ssl
-    depends_on:
-      - aionui-server
-      - aionui-web
-    profiles:
-      - ssl
+  **Recommended Agent Profile:**
+  - **Category**: `unspecified-high`
+  - **Skills**: None needed
 
-volumes:
-  aionui-data:
-    driver: local
-  aionui-workspace:
-    driver: local
-```
+  **Parallelization:**
+  - **Can Run In Parallel**: NO (Wave 3 sequential)
+  - **Blocks**: Task 11 (needs complete file handling)
+  - **Blocked By**: Task 9
 
-**New file: `.env.example`**
+  **Acceptance Criteria:**
+  - [ ] File upload works in web mode
+  - [ ] File picker still works in Electron mode
+  - [ ] No regressions in Electron functionality
 
-```bash
-# AionUi Web Configuration
-NODE_ENV=production
-PORT=3000
-
-# Security
-JWT_SECRET=your-secret-key-here-min-32-characters
-JWT_EXPIRY=24h
-
-# Data directories
-AIONUI_DATA_DIR=./data
-AIONUI_WORKSPACE_DIR=./workspace
-
-# Features
-ALLOW_REMOTE=false
-ENABLE_CORS=true
-
-# Optional: External services
-# OPENAI_API_KEY=
-# GEMINI_API_KEY=
-```
-
-**Commit:** `docker: add docker-compose configuration`
+  **Commit**: YES
+  - Message: `feat(web): integrate file upload in web mode`
+  - Files: [specific component files]
 
 ---
 
-#### Task 5.3: Write Deployment Documentation
+- [ ] **11. End-to-End Integration Tests**
 
-**What to do:**
+  **What to do:**
+  Create comprehensive tests verifying both Electron and Web modes work correctly.
 
-- Create deployment guide
-- Document environment variables
-- Provide Docker deployment instructions
-- Provide bare metal deployment instructions
+  Tests to create:
+  1. WebSocket connection tests
+  2. File upload/download tests
+  3. IPC bridge compatibility tests
+  4. Authentication tests
+  5. Conversation flow tests
 
-**New file: `docs/deployment/README.md`**
+  **Files to create:**
+  - `tests/integration/web/server.test.ts`
+  - `tests/integration/web/websocket.test.ts`
+  - `tests/integration/web/fileUpload.test.ts`
+  - `tests/e2e/web/flows.spec.ts`
 
-````markdown
-# AionUi Web Deployment Guide
+  **Recommended Agent Profile:**
+  - **Category**: `deep`
+  - **Skills**: None needed
 
-## Quick Start (Docker)
+  **Parallelization:**
+  - **Can Run In Parallel**: YES (Wave 4)
+  - **Blocks**: None
+  - **Blocked By**: Tasks 1-10 (needs full implementation)
 
-```bash
-# 1. Clone repository
-git clone https://github.com/aionui/aionui.git
-cd aionui
+  **Acceptance Criteria:**
+  - [ ] All integration tests pass
+  - [ ] WebSocket tests verify connectivity
+  - [ ] File upload tests verify HTTP endpoints
+  - [ ] E2E tests cover main user flows
 
-# 2. Configure environment
-cp .env.example .env
-# Edit .env with your settings
+  **QA Scenarios:**
 
-# 3. Start services
-docker-compose up -d
+  ```
+  Scenario: Full integration test suite
+    Tool: Bash (bun test)
+    Steps:
+      1. Run `bun run test:integration`
+      2. Check all tests pass
+      3. Run `bun run test:e2e`
+      4. Verify Playwright tests pass
+    Expected Result: All tests green
+    Evidence: .sisyphus/evidence/task-11-test-results.log
+  ```
 
-# 4. Access application
-# Web UI: http://localhost
-# API: http://localhost:3000
-```
-````
-
-## Configuration
-
-### Environment Variables
-
-| Variable          | Description              | Default    |
-| ----------------- | ------------------------ | ---------- |
-| `JWT_SECRET`      | Secret for JWT tokens    | (required) |
-| `PORT`            | Server port              | 3000       |
-| `ALLOW_REMOTE`    | Allow remote connections | false      |
-| `AIONUI_DATA_DIR` | Data storage path        | ./data     |
-
-### Volumes
-
-- `aionui-data`: Database and configuration
-- `aionui-workspace`: User workspace files
-
-## Production Deployment
-
-### With SSL (Let's Encrypt)
-
-```bash
-docker-compose --profile ssl up -d
-```
-
-### Bare Metal
-
-```bash
-# 1. Install Node.js 22
-# 2. Install dependencies
-npm ci --production
-
-# 3. Build
-npm run build:server
-npm run build:web
-
-# 4. Start server
-NODE_ENV=production node dist/server/index.js
-
-# 5. Serve static files (with nginx or similar)
-```
-
-## Health Checks
-
-- API: `GET /api/health`
-- WebSocket: Connect to `ws://localhost:3000`
-
-## Troubleshooting
-
-### WebSocket Connection Issues
-
-Check firewall rules for port 3000.
-
-### Database Permissions
-
-Ensure data directory is writable:
-
-```bash
-chmod 755 ./data
-```
-
-````
-
-**Commit:** `docs: add deployment documentation`
+  **Commit**: YES
+  - Message: `test: add integration and e2e tests for web mode`
+  - Files: `tests/integration/web/`, `tests/e2e/web/`
 
 ---
 
-#### Task 5.4: Create Migration Guide
-**What to do:**
-- Document migration from Electron to Web
-- Provide data migration instructions
-- Document breaking changes
-- Provide rollback instructions
+- [ ] **12. Docker Configuration**
 
-**New file: `docs/migration/From-Electron-to-Web.md`**
-```markdown
-# Migrating from Electron to Web
+  **What to do:**
+  Create Docker configuration for web deployment.
 
-## Overview
+  Create:
+  1. `Dockerfile` - Multi-stage build
+  2. `docker-compose.yml` - Production deployment
+  3. `.dockerignore` - Optimize build context
 
-This guide helps you migrate from AionUi Electron to AionUi Web.
+  **Implementation outline:**
 
-## Pre-Migration Checklist
+  ```dockerfile
+  # Dockerfile
+  FROM node:20-alpine AS builder
+  WORKDIR /app
+  COPY package*.json ./
+  RUN npm ci
+  COPY . .
+  RUN npm run build:web && npm run build:server
 
-- [ ] Backup your data directory
-- [ ] Note your current workspace paths
-- [ ] Export any custom settings
+  FROM node:20-alpine
+  WORKDIR /app
+  COPY --from=builder /app/dist ./dist
+  COPY --from=builder /app/node_modules ./node_modules
+  COPY package.json ./
+  EXPOSE 3000
+  CMD ["node", "dist/server/server.js"]
+  ```
 
-## Migration Steps
+  **Recommended Agent Profile:**
+  - **Category**: `quick`
+  - **Skills**: None needed
 
-### 1. Backup Data
+  **Parallelization:**
+  - **Can Run In Parallel**: YES (Wave 4)
+  - **Blocks**: None
+  - **Blocked By**: Task 6 (needs working build)
 
-```bash
-# Electron data location:
-# macOS: ~/Library/Application Support/AionUi/
-# Windows: %APPDATA%/AionUi/
-# Linux: ~/.config/AionUi/
+  **Acceptance Criteria:**
+  - [ ] Docker image builds successfully
+  - [ ] Container starts and serves web UI
+  - [ ] WebSocket works in container
+  - [ ] File upload works in container
 
-cp -r ~/Library/Application\ Support/AionUi/data ./aionui-backup
-````
+  **QA Scenarios:**
 
-### 2. Install Web Version
+  ```
+  Scenario: Docker deployment works
+    Tool: Bash (docker)
+    Steps:
+      1. Run `docker build -t aionui-web .`
+      2. Run `docker run -p 3000:3000 aionui-web`
+      3. Wait for container to start
+      4. Curl: `curl http://localhost:3000`
+      5. Open browser and test full functionality
+    Expected Result: Container serves web UI, all features work
+    Evidence: .sisyphus/evidence/task-12-docker-test.log
+  ```
 
-Follow the [Deployment Guide](../deployment/README.md).
-
-### 3. Migrate Data
-
-```bash
-# Copy database
-cp ./aionui-backup/config/aionui.db ./data/
-
-# Copy workspace
-cp -r ./aionui-backup/workspace/* ./workspace/
-```
-
-### 4. Update Configuration
-
-Convert Electron config to web format:
-
-```bash
-# Old location: config.json
-# New location: webui.config.json
-
-# Convert format (manual step - see examples)
-```
-
-### 5. Verify Migration
-
-- [ ] Login works
-- [ ] Conversations appear
-- [ ] Files accessible
-- [ ] Agents functional
-
-## Breaking Changes
-
-### File Selection
-
-- **Before:** Native file dialogs
-- **After:** Browser file input
-
-### Window Management
-
-- **Before:** System tray, minimize to tray
-- **After:** Browser tabs
-
-### Auto-Update
-
-- **Before:** Electron auto-updater
-- **After:** Manual Docker updates or watchtower
-
-## Rollback
-
-If you need to rollback:
-
-1. Stop web server: `docker-compose down`
-2. Restore Electron data from backup
-3. Launch Electron app
-
-## Support
-
-For issues, please file a GitHub issue.
-
-```
-
-**Commit:** `docs: add migration guide from Electron`
+  **Commit**: YES
+  - Message: `chore: add Docker configuration for web deployment`
+  - Files: `Dockerfile`, `docker-compose.yml`, `.dockerignore`
 
 ---
 
-## Summary & Timeline
+- [ ] **13. Deployment Documentation**
 
-### Week-by-Week Breakdown
+  **What to do:**
+  Create comprehensive deployment documentation.
 
-**Week 1: Foundation & Removal**
-- Day 1-2: Phase 0 (Setup)
-- Day 3-5: Phase 1 (Remove Electron)
+  Create:
+  1. `docs/web-deployment.md` - Setup and deployment guide
+  2. `docs/web-architecture.md` - Architecture overview
+  3. `docs/web-troubleshooting.md` - Common issues and solutions
 
-**Week 2: Core Migration**
-- Day 1-2: Phase 2 (Web Entry)
-- Day 3-5: Phase 3 (Frontend)
+  **Documentation outline:**
 
-**Week 3: Features & Testing**
-- Day 1-2: Phase 4 (File Handling)
-- Day 3-5: Phase 5 (Testing)
+  ````markdown
+  # Web Deployment Guide
 
-**Week 4: Deployment**
-- Day 1-3: Phase 6 (Deployment)
-- Day 4-5: Documentation & Polish
+  ## Quick Start
 
-### Resource Requirements
+  ```bash
+  bun run dev:server  # Terminal 1
+  bun run dev:web     # Terminal 2
+  ```
+  ````
 
-- **Developers**: 1-2 engineers
-- **Timeline**: 3-4 weeks
-- **Effort**: 132 hours
-- **Cost**: $10,000-15,000
+  ## Production Deployment
 
-### Risk Mitigation
+  ### Docker
 
-| Risk | Mitigation |
-|------|-----------|
-| WebSocket compatibility | Test thoroughly in Week 3 |
-| File handling issues | Implement fallback upload methods |
-| Performance concerns | Load testing in Week 3 |
-| Data migration | Comprehensive backup strategy |
+  ```bash
+  docker-compose up -d
+  ```
+
+  ### Manual
+
+  ```bash
+  bun run build:web
+  bun run build:server
+  bun run start:web
+  ```
+
+  ## Architecture
+  - Server: Node.js + Express + WebSocket
+  - Frontend: React + Vite (web build)
+  - Database: SQLite (same as Electron)
+  - Communication: WebSocket (replaces Electron IPC)
+
+  ```
+
+  **Recommended Agent Profile:**
+  - **Category**: `writing`
+  - **Skills**: None needed
+
+  **Parallelization:**
+  - **Can Run In Parallel**: YES (Wave 4)
+  - **Blocks**: None
+  - **Blocked By**: None
+
+  **Acceptance Criteria:**
+  - [ ] Quick start guide works for new developers
+  - [ ] Production deployment steps documented
+  - [ ] Architecture explained clearly
+  - [ ] Troubleshooting section covers common issues
+
+  **Commit**: YES
+  - Message: `docs: add web deployment documentation`
+  - Files: `docs/web-deployment.md`, `docs/web-architecture.md`, `docs/web-troubleshooting.md`
+  ```
 
 ---
 
-## Next Steps
+- [ ] **14. Final Verification**
 
-1. **Review this plan** with stakeholders
-2. **Create feature branch** for migration
-3. **Begin Phase 0** (Setup)
-4. **Track progress** using GitHub issues or project board
+  **What to do:**
+  Comprehensive verification that both modes work and no unintended modifications were made.
+
+  Verification checklist:
+  1. **Electron mode still works**
+     - `bun run start` starts Electron app
+     - All features functional
+     - No console errors
+  2. **Web mode works**
+     - `bun run dev:server` + `bun run dev:web`
+     - All features functional
+     - WebSocket connection stable
+  3. **No unintended file modifications**
+     - Compare with upstream: only package.json scripts changed
+     - All other modifications are NEW files only
+  4. **Upstream sync test**
+     - `git fetch upstream`
+     - `git rebase upstream/main`
+     - Verify no conflicts
+
+  **Recommended Agent Profile:**
+  - **Category**: `deep`
+  - **Skills**: None needed
+
+  **Parallelization:**
+  - **Can Run In Parallel**: NO (Wave 4 final task)
+  - **Blocks**: Final review tasks
+  - **Blocked By**: Tasks 1-13
+
+  **Acceptance Criteria:**
+  - [ ] Electron mode fully functional
+  - [ ] Web mode fully functional
+  - [ ] Only 3 files modified (package.json + 2 others max)
+  - [ ] 10+ new files created
+  - [ ] Upstream rebase produces no conflicts
+  - [ ] All tests pass
+
+  **QA Scenarios:**
+
+  ```
+  Scenario: Both modes work side-by-side
+    Tool: Bash + Browser
+    Steps:
+      1. Test Electron: `bun run start` - verify app opens
+      2. Close Electron
+      3. Test Web: `bun run dev:server` & `bun run dev:web`
+      4. Open browser, verify all features
+      5. Run git diff against upstream
+      6. Verify only expected files modified
+    Expected Result: Both modes work, minimal file modifications
+    Evidence: .sisyphus/evidence/task-14-final-verification.log
+  ```
+
+  **Commit**: NO (verification task)
 
 ---
 
-## Appendix: Files Changed Summary
+## Final Verification Wave
 
-### Modified Files (~20 files)
-- `src/index.ts` - Remove Electron, adapt for web
-- `src/process/index.ts` - Remove app references
-- `src/process/initStorage.ts` - Update path resolution
-- `src/process/utils.ts` - Remove Electron utils
-- `src/process/bridge/index.ts` - Remove Electron bridges
-- `src/renderer/index.ts` - Update entry
-- `src/renderer/index.html` - Update HTML
-- `src/renderer/bootstrap/runtimePatches.ts` - Adapt for web
-- `src/webserver/routes/apiRoutes.ts` - Add upload endpoints
-- `package.json` - Update scripts and dependencies
-- `vite.web.config.ts` - New build config
-- `tsconfig.server.json` - New TS config
+> **CRITICAL**: Verify NO unintended modifications to existing files
 
-### Removed Files (~5 files)
-- `src/preload.ts` - Not needed
-- `src/process/bridge/windowControlsBridge.ts` - Electron only
-- `src/process/bridge/notificationBridge.ts` - Electron only
-- `src/utils/appMenu.ts` - Electron only
-- `src/utils/configureChromium.ts` - Electron only
+- [ ] **F1. Plan Compliance Audit - `oracle`**
 
-### New Files (~8 files)
-- `src/server.ts` - Web entry point
-- `vite.web.config.ts` - Web build config
-- `tsconfig.server.json` - Server TS config
-- `src/renderer/components/FileUpload/` - Upload component
-- `docker/Dockerfile.server` - Docker config
-- `docker/Dockerfile.web` - Docker config
-- `docker/nginx.conf` - Nginx config
-- `docker-compose.yml` - Compose setup
+  Check: ONLY these files should be modified:
+  - `package.json` (scripts only)
+  - `src/webserver/routes/apiRoutes.ts` (add file upload routes)
+  - 1-2 specific components for file upload integration
 
-**Total: ~370 lines changed out of 60,000+ codebase = 0.6%**
+  ALL other changes must be NEW files only.
+
+  Output: `Modified: [list] | New: [list] | VERDICT`
+
+- [ ] **F2. Upstream Sync Verification - `git-master`**
+
+  Test daily upstream sync workflow:
+
+  ```bash
+  git fetch upstream
+  git rebase upstream/main
+  ```
+
+  Should produce ZERO conflicts (except possibly package.json if upstream changed scripts).
+
+  Output: `Conflicts: [0 or list] | VERDICT`
+
+- [ ] **F3. Code Quality Review - `unspecified-high`**
+
+  Run quality checks:
+
+  ```bash
+  bun run lint
+  bun run test
+  bunx tsc --noEmit
+  ```
+
+  Output: `Lint [PASS/FAIL] | Tests [N/N pass] | Types [PASS/FAIL] | VERDICT`
+
+- [ ] **F4. Scope Fidelity Check - `deep`**
+
+  Verify deliverables:
+  - [ ] server.ts exists and works
+  - [ ] web-entry.tsx exists and works
+  - [ ] vite.web.config.ts exists
+  - [ ] File upload endpoints work
+  - [ ] Docker config works
+  - [ ] Documentation complete
+
+  Output: `Deliverables [N/N] | VERDICT`
+
+---
+
+## Commit Strategy
+
+### Commits by Task
+
+1. Task 1: `feat(web): add server.ts entry point for web deployment`
+2. Task 2: `build: add vite.web.config.ts for web builds`
+3. Task 3: `chore: add npm scripts for web development`
+4. Task 5: `feat(web): add web renderer entry point`
+5. Task 6: `build: configure server TypeScript and build pipeline`
+6. Task 8: `feat(web): add file upload/download HTTP endpoints`
+7. Task 9: `feat(web): add file upload UI components for web mode`
+8. Task 10: `feat(web): integrate file upload in web mode`
+9. Task 11: `test: add integration and e2e tests for web mode`
+10. Task 12: `chore: add Docker configuration for web deployment`
+11. Task 13: `docs: add web deployment documentation`
+
+### Total Commits: 11
+
+---
+
+## Success Criteria
+
+### Verification Commands
+
+```bash
+# 1. Electron mode (unchanged)
+bun run start
+# Expected: Electron app opens, fully functional
+
+# 2. Web mode development
+bun run dev:server  # Terminal 1
+bun run dev:web     # Terminal 2
+# Expected: Web UI at http://localhost:5173, WebSocket connected
+
+# 3. Web mode production
+bun run build:web
+bun run build:server
+bun run start:web
+# Expected: Production build at http://localhost:3000
+
+# 4. Docker deployment
+docker-compose up --build
+# Expected: Containerized deployment works
+
+# 5. Tests
+bun run test
+# Expected: All tests pass
+
+# 6. Upstream sync
+git fetch upstream
+git rebase upstream/main
+# Expected: No conflicts (or only package.json scripts)
 ```
+
+### Final Checklist
+
+- [ ] Only 3 files modified in existing codebase
+- [ ] 10+ new files created
+- [ ] Electron mode 100% functional
+- [ ] Web mode 100% functional
+- [ ] All 100+ IPC bridges work in both modes
+- [ ] File upload works in web mode
+- [ ] Docker deployment works
+- [ ] Documentation complete
+- [ ] Tests pass
+- [ ] Upstream sync produces no conflicts
+
+---
+
+## Upstream Sync Strategy
+
+### Daily Workflow
+
+```bash
+# Each morning, sync with upstream
+git fetch upstream
+git rebase upstream/main
+
+# If conflicts in package.json (scripts):
+# - Keep upstream changes
+# - Manually re-add web scripts
+# - Commit: `chore: resolve package.json conflicts after rebase`
+
+# If conflicts elsewhere:
+# - THIS SHOULD NOT HAPPEN
+# - Indicates unintended file modification
+# - Review and fix immediately
+```
+
+### Branch Strategy
+
+```bash
+# Feature branch approach
+main                    # Your main branch (syncs with upstream)
+  └── feat/web-mode     # Web migration work
+
+# Workflow:
+# 1. Do all work in feat/web-mode
+# 2. Daily: rebase feat/web-mode onto main
+# 3. When ready: merge feat/web-mode into main
+```
+
+### Conflict Prevention
+
+By keeping modifications minimal:
+
+- **package.json**: Only scripts section touched
+  - Low conflict probability (unless upstream changes scripts)
+  - Easy resolution: accept upstream, re-add web scripts
+- **All other files**: NEW only
+  - Zero conflict probability
+  - Never touched by upstream
+
+---
+
+## Architecture Comparison
+
+### Original Plan (High Conflict Risk)
+
+```
+Modified Files (~25):
+- src/index.ts              ⚠️ HIGH conflict (core entry point)
+- src/preload.ts            ⚠️ HIGH conflict (Electron API)
+- src/renderer/index.tsx    ⚠️ HIGH conflict (renderer entry)
+- src/webserver/...         ⚠️ MEDIUM conflict
+- 20+ more files...
+
+Result: Daily merge conflicts, difficult maintenance
+```
+
+### Revised Plan (Near-Zero Conflict Risk)
+
+```
+Modified Files (~3):
+- package.json              ✓ LOW conflict (scripts only)
+- src/webserver/routes/apiRoutes.ts  ✓ LOW conflict (adds routes)
+- 1-2 component files        ✓ LOW conflict (conditional logic)
+
+New Files (~10):
+- src/server.ts             ✓ NO conflict (new)
+- src/renderer/web-entry.tsx ✓ NO conflict (new)
+- vite.web.config.ts        ✓ NO conflict (new)
+- src/webserver/routes/fileUploadRoutes.ts ✓ NO conflict (new)
+- src/renderer/components/web/... ✓ NO conflict (new)
+- tsconfig.server.json      ✓ NO conflict (new)
+- Dockerfile               ✓ NO conflict (new)
+- docs/web-*.md            ✓ NO conflict (new)
+
+Result: Easy upstream sync, minimal maintenance burden
+```
+
+---
+
+## Conclusion
+
+This revised plan prioritizes **upstream compatibility** over quick implementation. By using an additive-only approach:
+
+1. **Zero merge conflicts** with daily upstream updates
+2. **Dual-mode deployment** - Electron and Web from same codebase
+3. **Minimal risk** - existing functionality untouched
+4. **Faster timeline** - 8-10 days vs 17 days (fewer files to modify)
+
+The key insight is that AionUi's existing architecture (WebSocket support in browser.ts, separate webserver module) already supports web deployment. We just need to:
+
+- Add server entry point (NEW file)
+- Add web renderer entry (NEW file)
+- Add file upload endpoints (NEW routes)
+- Add minimal npm scripts (MODIFY 1 file)
+
+Everything else stays exactly as-is.
+
+---
+
+## Ready to Execute
+
+To begin implementation, run:
+
+```bash
+/start-work aionui-web-migration
+```
+
+This will:
+
+1. Register the plan as your active boulder
+2. Track progress across sessions
+3. Begin with Task 1 (Create Server Entry Point)
+4. Ensure all work follows additive-only principle
